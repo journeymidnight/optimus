@@ -1,344 +1,192 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package main
 
 import (
-	"flag"
-	"fmt"
-	"io/ioutil"
-	"net"
-	"net/http"
-	"os"
-	"strconv"
-	"strings"
-	"time"
-
+	"github.com/mesos/mesos-go/mesosproto"
 	"github.com/gogo/protobuf/proto"
-	log "github.com/golang/glog"
-	"github.com/mesos/mesos-go/auth"
-	"github.com/mesos/mesos-go/auth/sasl"
-	"github.com/mesos/mesos-go/auth/sasl/mech"
-	mesos "github.com/mesos/mesos-go/mesosproto"
-	util "github.com/mesos/mesos-go/mesosutil"
-	sched "github.com/mesos/mesos-go/scheduler"
-	"golang.org/x/net/context"
-)
-
-const (
-	CPUS_PER_EXECUTOR   = 0.01
-	CPUS_PER_TASK       = 1
-	MEM_PER_EXECUTOR    = 64
-	MEM_PER_TASK        = 64
-	defaultArtifactPort = 12345
+	"github.com/mesos/mesos-go/scheduler"
+	"os"
+	"log"
+	"flag"
+	"strconv"
+	"github.com/mesos/mesos-go/mesosutil"
 )
 
 var (
-	address      = flag.String("address", "127.0.0.1", "Binding address for artifact server")
-	artifactPort = flag.Int("artifactPort", defaultArtifactPort, "Binding port for artifact server")
-	authProvider = flag.String("mesos_authentication_provider", sasl.ProviderName,
-		fmt.Sprintf("Authentication provider to use, default is SASL that supports mechanisms: %+v", mech.ListSupported()))
-	master              = flag.String("master", "127.0.0.1:5050", "Master address <ip:port>")
-	executorPath        = flag.String("executor", "./executor", "Path to test executor")
-	taskCount           = flag.String("task-count", "5", "Total task count to run.")
-	mesosAuthPrincipal  = flag.String("mesos_authentication_principal", "", "Mesos authentication principal.")
-	mesosAuthSecretFile = flag.String("mesos_authentication_secret_file", "", "Mesos authentication secret file.")
-	slowLaunch          = flag.Bool("slow_launch", false, "When true the ResourceOffers func waits for several seconds before attempting to launch tasks; useful for debugging failover")
-	slowTasks           = flag.Bool("slow_tasks", false, "When true tasks will take several seconds before responding with TASK_FINISHED; useful for debugging failover")
+	// TODO: replace global variables with config parameters
+	MASTER = "127.0.0.1:5050"
+	EXECUTOR_URL = "http://127.0.0.1:8000/main_6"
+	EXECUTE_CMD = "./main_6"
+	CPU_PER_TASK = .5
+	MEM_PER_TASK = 500.
+	DISK_PER_TASK = 1024.
+	logger *log.Logger
 )
 
-type ExampleScheduler struct {
-	executor      *mesos.ExecutorInfo
+type Scheduler struct{ // implements scheduler.Scheduler interface
 	tasksLaunched int
-	tasksFinished int
-	tasksErrored  int
-	totalTasks    int
+	// TODO: more instance variables
 }
 
-func newExampleScheduler(exec *mesos.ExecutorInfo) *ExampleScheduler {
-	total, err := strconv.Atoi(*taskCount)
-	if err != nil {
-		total = 5
-	}
-	return &ExampleScheduler{
-		executor:   exec,
-		totalTasks: total,
-	}
+func newScheduler() *Scheduler{
+	return &Scheduler{}
 }
 
-func (sched *ExampleScheduler) Registered(driver sched.SchedulerDriver, frameworkId *mesos.FrameworkID, masterInfo *mesos.MasterInfo) {
-	log.Infoln("Framework Registered with Master ", masterInfo)
+func (scheduler *Scheduler) Registered(driver scheduler.SchedulerDriver,
+frameworkID *mesosproto.FrameworkID, masterInfo *mesosproto.MasterInfo)  {
+	logger.Println("Framework registered.")
+	logger.Println("Framework ID: ", frameworkID.GetValue())
+	logger.Println("Master: ", masterInfo)
 }
 
-func (sched *ExampleScheduler) Reregistered(driver sched.SchedulerDriver, masterInfo *mesos.MasterInfo) {
-	log.Infoln("Framework Re-Registered with Master ", masterInfo)
-	_, err := driver.ReconcileTasks([]*mesos.TaskStatus{})
-	if err != nil {
-		log.Errorf("failed to request task reconciliation: %v", err)
-	}
+func (scheduler *Scheduler) Reregistered(driver scheduler.SchedulerDriver,
+masterInfo *mesosproto.MasterInfo)  {
+	logger.Println("Framework re-registered.")
+	logger.Println("Master: ", masterInfo)
 }
 
-func (sched *ExampleScheduler) Disconnected(sched.SchedulerDriver) {
-	log.Warningf("disconnected from master")
+func (scheduler *Scheduler) Disconnected(driver scheduler.SchedulerDriver)  {
+	logger.Println("Disconnected from master!")
+	driver.Stop(true)
+	// TODO: fail-over
 }
 
-func (sched *ExampleScheduler) ResourceOffers(driver sched.SchedulerDriver, offers []*mesos.Offer) {
+func buildUris() []*mesosproto.CommandInfo_URI {
+	var uris []*mesosproto.CommandInfo_URI
+	uris = append(uris, &mesosproto.CommandInfo_URI{
+		Value: &EXECUTOR_URL,
+		Executable: proto.Bool(true),
+		Extract: proto.Bool(false),
+		Cache: proto.Bool(true),
+	})
+	uris = append(uris, &mesosproto.CommandInfo_URI{
+		Value: proto.String("http://www.le.com/index.html"),  // TODO: file to download
+		Executable: proto.Bool(false),
+		Extract: proto.Bool(false),
+		Cache: proto.Bool(false),
+	})
+	return uris
+}
 
-	if *slowLaunch {
-		time.Sleep(3 * time.Second)
-	}
-
-	if (sched.tasksLaunched - sched.tasksErrored) >= sched.totalTasks {
-		log.Info("decline all of the offers since all of our tasks are already launched")
-		ids := make([]*mesos.OfferID, len(offers))
-		for i, offer := range offers {
-			ids[i] = offer.Id
-		}
-		driver.LaunchTasks(ids, []*mesos.TaskInfo{}, &mesos.Filters{RefuseSeconds: proto.Float64(120)})
-		return
-	}
+func (scheduler *Scheduler) ResourceOffers(driver scheduler.SchedulerDriver,
+offers []*mesosproto.Offer)  {
 	for _, offer := range offers {
-		cpuResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
-			return res.GetName() == "cpus"
-		})
-		cpus := 0.0
-		for _, res := range cpuResources {
-			cpus += res.GetScalar().GetValue()
-		}
-
-		memResources := util.FilterResources(offer.Resources, func(res *mesos.Resource) bool {
-			return res.GetName() == "mem"
-		})
-		mems := 0.0
-		for _, res := range memResources {
-			mems += res.GetScalar().GetValue()
-		}
-
-		log.Infoln("Received Offer <", offer.Id.GetValue(), "> with cpus=", cpus, " mem=", mems)
-
-		remainingCpus := cpus
-		remainingMems := mems
-
-		// account for executor resources if there's not an executor already running on the slave
-		if len(offer.ExecutorIds) == 0 {
-			remainingCpus -= CPUS_PER_EXECUTOR
-			remainingMems -= MEM_PER_EXECUTOR
-		}
-
-		var tasks []*mesos.TaskInfo
-		for (sched.tasksLaunched-sched.tasksErrored) < sched.totalTasks &&
-			CPUS_PER_TASK <= remainingCpus &&
-			MEM_PER_TASK <= remainingMems {
-
-			sched.tasksLaunched++
-
-			taskId := &mesos.TaskID{
-				Value: proto.String(strconv.Itoa(sched.tasksLaunched)),
+		var totalCpu, totalMemory, totalDisk float64
+		for _, resource := range offer.Resources {
+			switch resource.GetName() {
+			case "cpus":
+				totalCpu += *resource.GetScalar().Value
+			case "mem":
+				totalMemory += *resource.GetScalar().Value
+			case "disk":
+				totalDisk += *resource.GetScalar().Value
 			}
-
-			task := &mesos.TaskInfo{
-				Name:     proto.String("go-task-" + taskId.GetValue()),
-				TaskId:   taskId,
-				SlaveId:  offer.SlaveId,
-				Executor: sched.executor,
-				Resources: []*mesos.Resource{
-					util.NewScalarResource("cpus", CPUS_PER_TASK),
-					util.NewScalarResource("mem", MEM_PER_TASK),
+		}
+		logger.Println("Offered cpu: ", totalCpu, "memory: ", totalMemory,
+			"disk: ", totalDisk)
+		tasks := []*mesosproto.TaskInfo{}
+		for totalCpu >= CPU_PER_TASK && totalMemory >= MEM_PER_TASK &&
+			totalDisk >= DISK_PER_TASK {
+			taskID := &mesosproto.TaskID{
+				Value: proto.String(strconv.Itoa(scheduler.tasksLaunched)),
+			}
+			executor := &mesosproto.ExecutorInfo{
+				ExecutorId: &mesosproto.ExecutorID{
+					Value: proto.String("transmission-" + taskID.GetValue()),
 				},
+				Command: &mesosproto.CommandInfo{
+					Value: proto.String(EXECUTE_CMD),
+					Uris: buildUris(),
+				},
+				//Resources: []*mesosproto.Resource{
+				//	mesosutil.NewScalarResource("cpus", CPU_PER_TASK),
+				//	mesosutil.NewScalarResource("mem", MEM_PER_TASK),
+				//	mesosutil.NewScalarResource("disk", DISK_PER_TASK),
+				//},
 			}
-			log.Infof("Prepared task: %s with offer %s for launch\n", task.GetName(), offer.Id.GetValue())
+			task := &mesosproto.TaskInfo{
+				Name: proto.String("Transmission-" + taskID.GetValue()),
+				TaskId: taskID,
+				SlaveId: offer.SlaveId,
+				Executor: executor,
+				Resources: []*mesosproto.Resource{
+					mesosutil.NewScalarResource("cpus", CPU_PER_TASK),
+					mesosutil.NewScalarResource("mem", MEM_PER_TASK),
+					mesosutil.NewScalarResource("disk", DISK_PER_TASK),
+				},
+				Data: []byte("where to upload to"), // TODO
+			}
 
 			tasks = append(tasks, task)
-			remainingCpus -= CPUS_PER_TASK
-			remainingMems -= MEM_PER_TASK
+			scheduler.tasksLaunched++
+			totalCpu -= CPU_PER_TASK
+			totalMemory -= MEM_PER_TASK
+			totalDisk -= DISK_PER_TASK
 		}
-		log.Infoln("Launching ", len(tasks), "tasks for offer", offer.Id.GetValue())
-		driver.LaunchTasks([]*mesos.OfferID{offer.Id}, tasks, &mesos.Filters{RefuseSeconds: proto.Float64(5)})
+		driver.LaunchTasks([]*mesosproto.OfferID{offer.Id},
+			tasks, &mesosproto.Filters{})
 	}
 }
 
-func (sched *ExampleScheduler) StatusUpdate(driver sched.SchedulerDriver, status *mesos.TaskStatus) {
-	log.Infoln("Status update: task", status.TaskId.GetValue(), " is in state ", status.State.Enum().String())
-	if status.GetState() == mesos.TaskState_TASK_FINISHED {
-		sched.tasksFinished++
-		driver.ReviveOffers() // TODO(jdef) rate-limit this
+func (scheduler *Scheduler) OfferRescinded(driver scheduler.SchedulerDriver,
+offer *mesosproto.OfferID)  {
+	logger.Println("Offer rescinded: ", offer)
+}
+
+func (scheduler *Scheduler) StatusUpdate(driver scheduler.SchedulerDriver,
+taskStatus *mesosproto.TaskStatus)  {
+	logger.Println("Status update: task", taskStatus.TaskId.GetValue(),
+		" is in state ", taskStatus.State.Enum().String())
+}
+
+func (scheduler *Scheduler) FrameworkMessage(driver scheduler.SchedulerDriver,
+executorID *mesosproto.ExecutorID, slaveID *mesosproto.SlaveID, message string)  {
+	logger.Printf("Framework message from executor %q slave %q: %q\n",
+		executorID, slaveID, message)
+}
+
+func (scheduler *Scheduler) SlaveLost(driver scheduler.SchedulerDriver,
+slaveID *mesosproto.SlaveID)  {
+	logger.Printf("Slave lost: %v", slaveID)
+}
+
+func (scheduler *Scheduler) ExecutorLost(driver scheduler.SchedulerDriver,
+executorID *mesosproto.ExecutorID, slaveID *mesosproto.SlaveID, code int)  {
+	logger.Printf("Executor %q lost on slave %q code %d",
+		executorID, slaveID, code)
+}
+
+func (scheduler *Scheduler) Error(driver scheduler.SchedulerDriver, error string)  {
+	logger.Println("Unrecoverable error: ", error)
+	driver.Stop(false)
+}
+
+
+func init()  {
+	flag.Parse() // mesos-go uses golang/glog, which requires parse flags first
+}
+
+func main()  {
+	// TODO: log to a file
+	logger = log.New(os.Stdout, "Optimus Prime: ", log.LstdFlags|log.Lshortfile)
+
+	frameworkInfo := &mesosproto.FrameworkInfo{
+		User: proto.String(""), // let mesos-go fill in
+		Name: proto.String("Optimus Prime"),
 	}
 
-	if sched.tasksFinished >= sched.totalTasks {
-		log.Infoln("Total tasks completed, stopping framework.")
-		driver.Stop(false)
+	config := scheduler.DriverConfig{
+		Scheduler: newScheduler(),
+		Framework: frameworkInfo,
+		Master: MASTER,
 	}
-
-	if status.GetState() == mesos.TaskState_TASK_LOST ||
-		status.GetState() == mesos.TaskState_TASK_KILLED ||
-		status.GetState() == mesos.TaskState_TASK_FAILED ||
-		status.GetState() == mesos.TaskState_TASK_ERROR {
-		sched.tasksErrored++
-	}
-}
-
-func (sched *ExampleScheduler) OfferRescinded(_ sched.SchedulerDriver, oid *mesos.OfferID) {
-	log.Errorf("offer rescinded: %v", oid)
-}
-func (sched *ExampleScheduler) FrameworkMessage(_ sched.SchedulerDriver, eid *mesos.ExecutorID, sid *mesos.SlaveID, msg string) {
-	log.Errorf("framework message from executor %q slave %q: %q", eid, sid, msg)
-}
-func (sched *ExampleScheduler) SlaveLost(_ sched.SchedulerDriver, sid *mesos.SlaveID) {
-	log.Errorf("slave lost: %v", sid)
-}
-func (sched *ExampleScheduler) ExecutorLost(_ sched.SchedulerDriver, eid *mesos.ExecutorID, sid *mesos.SlaveID, code int) {
-	log.Errorf("executor %q lost on slave %q code %d", eid, sid, code)
-}
-func (sched *ExampleScheduler) Error(_ sched.SchedulerDriver, err string) {
-	log.Errorf("Scheduler received error: %v", err)
-}
-
-// ----------------------- func init() ------------------------- //
-
-func init() {
-	flag.Parse()
-	log.Infoln("Initializing the Example Scheduler...")
-}
-
-// returns (downloadURI, basename(path))
-func serveExecutorArtifact(path string) (*string, string) {
-	serveFile := func(pattern string, filename string) {
-		http.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
-			http.ServeFile(w, r, filename)
-		})
-	}
-
-	// Create base path (http://foobar:5000/<base>)
-	pathSplit := strings.Split(path, "/")
-	var base string
-	if len(pathSplit) > 0 {
-		base = pathSplit[len(pathSplit)-1]
-	} else {
-		base = path
-	}
-	serveFile("/"+base, path)
-
-	hostURI := fmt.Sprintf("http://%s:%d/%s", *address, *artifactPort, base)
-	log.V(2).Infof("Hosting artifact '%s' at '%s'", path, hostURI)
-
-	return &hostURI, base
-}
-
-func prepareExecutorInfo() *mesos.ExecutorInfo {
-	executorUris := []*mesos.CommandInfo_URI{}
-	uri, executorCmd := serveExecutorArtifact(*executorPath)
-	executorUris = append(executorUris, &mesos.CommandInfo_URI{Value: uri, Executable: proto.Bool(true)})
-
-	// forward the value of the scheduler's -v flag to the executor
-	v := 0
-	if f := flag.Lookup("v"); f != nil && f.Value != nil {
-		if vstr := f.Value.String(); vstr != "" {
-			if vi, err := strconv.ParseInt(vstr, 10, 32); err == nil {
-				v = int(vi)
-			}
-		}
-	}
-	executorCommand := fmt.Sprintf("./%s -logtostderr=true -v=%d -slow_tasks=%v", executorCmd, v, *slowTasks)
-
-	go http.ListenAndServe(fmt.Sprintf("%s:%d", *address, *artifactPort), nil)
-	log.V(2).Info("Serving executor artifacts...")
-
-	// Create mesos scheduler driver.
-	return &mesos.ExecutorInfo{
-		ExecutorId: util.NewExecutorID("default"),
-		Name:       proto.String("Test Executor (Go)"),
-		Source:     proto.String("go_test"),
-		Command: &mesos.CommandInfo{
-			Value: proto.String(executorCommand),
-			Uris:  executorUris,
-		},
-		Resources: []*mesos.Resource{
-			util.NewScalarResource("cpus", CPUS_PER_EXECUTOR),
-			util.NewScalarResource("mem", MEM_PER_EXECUTOR),
-		},
-	}
-}
-
-func parseIP(address string) net.IP {
-	addr, err := net.LookupIP(address)
+	driver, err := scheduler.NewMesosSchedulerDriver(config)
 	if err != nil {
-		log.Fatal(err)
+		logger.Println("Unable to create SchedulerDriver: ", err.Error())
 	}
-	if len(addr) < 1 {
-		log.Fatalf("failed to parse IP from address '%v'", address)
-	}
-	return addr[0]
-}
-
-// ----------------------- func main() ------------------------- //
-
-func main() {
-
-	// build command executor
-	exec := prepareExecutorInfo()
-
-	// the framework
-	fwinfo := &mesos.FrameworkInfo{
-		User: proto.String(""), // Mesos-go will fill in user.
-		Name: proto.String("Test Framework (Go)"),
-	}
-
-	cred := (*mesos.Credential)(nil)
-	if *mesosAuthPrincipal != "" {
-		fwinfo.Principal = proto.String(*mesosAuthPrincipal)
-		cred = &mesos.Credential{
-			Principal: proto.String(*mesosAuthPrincipal),
-		}
-		if *mesosAuthSecretFile != "" {
-			_, err := os.Stat(*mesosAuthSecretFile)
-			if err != nil {
-				log.Fatal("missing secret file: ", err.Error())
-			}
-			secret, err := ioutil.ReadFile(*mesosAuthSecretFile)
-			if err != nil {
-				log.Fatal("failed to read secret file: ", err.Error())
-			}
-			cred.Secret = proto.String(string(secret))
-		}
-	}
-	bindingAddress := parseIP(*address)
-	config := sched.DriverConfig{
-		Scheduler:      newExampleScheduler(exec),
-		Framework:      fwinfo,
-		Master:         *master,
-		Credential:     cred,
-		BindingAddress: bindingAddress,
-		WithAuthContext: func(ctx context.Context) context.Context {
-			ctx = auth.WithLoginProvider(ctx, *authProvider)
-			ctx = sasl.WithBindingAddress(ctx, bindingAddress)
-			return ctx
-		},
-	}
-	driver, err := sched.NewMesosSchedulerDriver(config)
-
+	status, err := driver.Run()
 	if err != nil {
-		log.Errorln("Unable to create a SchedulerDriver ", err.Error())
+		logger.Println("Framework stopped with status ", status.String(),
+			"and error ", err.Error())
 	}
-
-	if stat, err := driver.Run(); err != nil {
-		log.Infof("Framework stopped with status %s and error: %s\n", stat.String(), err.Error())
-		time.Sleep(2 * time.Second)
-		os.Exit(1)
-	}
-	log.Infof("framework terminating")
+	logger.Println("Framework terminated")
 }
