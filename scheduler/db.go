@@ -5,6 +5,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	"fmt"
 	"github.com/mesos/mesos-go/mesosproto"
+	"strconv"
 )
 
 func createDbConnection() *sql.DB {
@@ -71,7 +72,8 @@ func upsertSlave(slave *Slave) (int64, error) {
 
 func getIdleExecutorsOnSlave(tx *sql.Tx, slaveId int64) (executors []*Executor) {
 	rows, err := tx.Query("select uuid, task_running from executor where " +
-		"slave_id = ? and task_running < ? for update", slaveId, EXECUTOR_IDLE_THRESHOLD)
+		"slave_id = ? and task_running < ? and status != ? for update",
+		slaveId, EXECUTOR_IDLE_THRESHOLD, "Lost")
 	if err != nil {
 		logger.Println("Error querying idle executors: ", err)
 		return
@@ -132,9 +134,9 @@ func initializeTaskStatus(tx *sql.Tx, tasks []*mesosproto.TaskInfo, slaveId int6
 	for _, task := range tasks {
 		taskId := task.TaskId.GetValue()
 		uuid := task.Executor.ExecutorId.GetValue()
-		result, err := tx.Exec("insert into executor(id, slave_id, uuid, task_running) " +
-			"values(?, ?, ?, ?) on duplicate key update " +
-			"task_running = task_running + 1", 0, slaveId, uuid, 1)
+		result, err := tx.Exec("insert into executor(id, slave_id, uuid, task_running, status) " +
+			"values(?, ?, ?, ?, ?) on duplicate key update " +
+			"task_running = task_running + 1", 0, slaveId, uuid, 1, "Scheduled")
 		if err != nil {
 			logger.Println("Error upsert executor: ", err)
 			continue
@@ -161,14 +163,75 @@ func initializeTaskStatus(tx *sql.Tx, tasks []*mesosproto.TaskInfo, slaveId int6
 	tx.Commit()
 }
 
-func updateTask(taskId string, executorId string, status string)  {
-	logger.Println("Updating task. task id:", taskId, "executor id:", executorId, "status:", status)
-}
+func updateTask(taskId string, executorUuid string, status string, )  {
+	logger.Println("Updating task. task id:", taskId, "executor id:", executorUuid, "status:", status)
 
-func slaveLostUpdate(slaveUuid string)  {
-	logger.Println("slave uuid: ", slaveUuid)
+	taskIdInt, _ := strconv.ParseInt(taskId, 10, 64)
+	_, err := db.Exec("update task set status = ? where id = ?", status, taskIdInt)
+	if err != nil {
+		logger.Println("Error updating status for task ", taskId, "with error ", err)
+	}
+	// Note here we assume the status is transforming from "Scheduled" to others
+	_, err = db.Exec("update executor set task_running = task_running - 1 where " +
+		"uuid = ?", executorUuid)
+	if err != nil {
+		logger.Println("Error updating task running count: ", err)
+	}
 }
 
 func executorLostUpdate(executorUuid string)  {
 	logger.Println("executor uuid: ", executorUuid)
+
+	var executorId int64
+	err := db.QueryRow("select id from executor where uuid = ?", executorUuid).Scan(&executorId)
+	if err != nil {
+		logger.Println("Error querying executor ID: ", err)
+		return
+	}
+	_, err = db.Exec("update executor set status = ? where uuid = ?",
+			"Lost", executorUuid)
+	if err != nil {
+		logger.Println("Error removing executor ", executorUuid, "with error ", err)
+	}
+	_ , err = db.Exec("update task set status = ? where " +
+		"executor_id = ? and status = ?", "Failed", executorId, "Scheduled")
+	if err != nil {
+		logger.Println("Error updating task status for ", executorUuid, "with error ", err)
+	}
 }
+
+func slaveLostUpdate(slaveUuid string)  {
+	logger.Println("slave uuid: ", slaveUuid)
+
+	var slaveId int64
+	err := db.QueryRow("select id from slave where uuid = ?", slaveUuid).Scan(&slaveId)
+	if err != nil {
+		logger.Println("Error querying slave ID: ", err)
+		return
+	}
+	var executorUuids []string
+	rows, err := db.Query("select uuid from executor where " +
+		"slave_id = ?", slaveId)
+	if err != nil {
+		logger.Println("Error querying executors for slave: ", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var executorUuid string
+		if err := rows.Scan(&executorUuid); err != nil {
+			logger.Println("Row scan error: ", err)
+			continue
+		}
+		executorUuids = append(executorUuids, executorUuid)
+	}
+	_, err = db.Exec("update slave set status = ? where " +
+		"id = ?", "Lost", slaveId)
+	if err != nil {
+		logger.Println("Error updating slave status for ", slaveUuid, " with error ", err)
+	}
+	for _, uuid := range executorUuids {
+		executorLostUpdate(uuid)
+	}
+}
+

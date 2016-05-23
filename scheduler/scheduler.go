@@ -57,6 +57,7 @@ type Slave struct {
 type Executor struct {
 	id string // uuid
 	taskRunning int
+	status string // in Scheduled/Lost
 }
 
 // calculate how many executors and tasks could be launched for certain resources
@@ -103,11 +104,13 @@ slaveId *mesosproto.SlaveID) (mesosTask *mesosproto.TaskInfo) {
 
 func newTaskForExecutor(task *TransferTask, executor *Executor,
 slaveId *mesosproto.SlaveID) *mesosproto.TaskInfo {
+	logger.Println("existing executor: ", task.Id)
 	return newTask(task, executor.id, slaveId)
 }
 
 func newTaskAndExecutor(task *TransferTask,
 slaveId *mesosproto.SlaveID) *mesosproto.TaskInfo {
+	logger.Println("new executor: ", task.Id)
 	return newTask(task, newUuid(), slaveId)
 }
 

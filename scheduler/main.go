@@ -19,7 +19,7 @@ var (
 	DB_CONNECTION_STRING = "root@tcp(127.0.0.1:3306)/optimus"
 	REQUEST_BUFFER = 10000
 	FILES_PER_TASK = 10
-	EXECUTOR_IDLE_THRESHOLD = 2 // if an executor has taskRunning < THRESHOLD, treat it as idle
+	EXECUTOR_IDLE_THRESHOLD = 3 // if an executor has taskRunning < THRESHOLD, treat it as idle
 	CPU_PER_EXECUTOR = .5
 	MEM_PER_TASK = 500.
 	DISK_PER_TASK = 1024.
