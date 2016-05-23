@@ -50,11 +50,12 @@ func buildUris() []*mesosproto.CommandInfo_URI {
 
 type Slave struct {
 	uuid string
+	hostname string
 	status string // in Active/Lost
 }
 
 type Executor struct {
-	id string
+	id string // uuid
 	taskRunning int
 }
 
@@ -65,18 +66,14 @@ func calculateCapacity(cpu float64, memory float64, disk float64) (executor int,
 	return
 }
 
-func newTaskForExecutor(task *TransferTask, executor *Executor,
+func newTask(task *TransferTask, executorId string,
 slaveId *mesosproto.SlaveID) (mesosTask *mesosproto.TaskInfo) {
-
-}
-
-func newTaskAndExecutor(task *TransferTask, slaveId *mesosproto.SlaveID) (mesosTask *mesosproto.TaskInfo) {
 	taskID := &mesosproto.TaskID{
-		Value: proto.String(strconv.Itoa(task.id)),
+		Value: proto.String(strconv.FormatInt(task.Id, 10)),
 	}
 	executor := &mesosproto.ExecutorInfo{
 		ExecutorId: &mesosproto.ExecutorID{
-			Value: proto.String(newUuid()),
+			Value: proto.String(executorId),
 		},
 		Command: &mesosproto.CommandInfo{
 			Value: proto.String(EXECUTE_CMD),
@@ -86,8 +83,12 @@ func newTaskAndExecutor(task *TransferTask, slaveId *mesosproto.SlaveID) (mesosT
 			mesosutil.NewScalarResource("cpus", CPU_PER_EXECUTOR),
 		},
 	}
+	jsonData, err := json.Marshal(task)
+	if err != nil {
+		logger.Println("Error marshal json: ", err)
+	}
 	mesosTask = &mesosproto.TaskInfo{
-		Name: proto.String("Transfer-" + strconv.Itoa(task.id)),
+		Name: proto.String("Transfer-" + strconv.FormatInt(task.Id, 10)),
 		TaskId: taskID,
 		SlaveId: slaveId,
 		Executor: executor,
@@ -95,18 +96,34 @@ func newTaskAndExecutor(task *TransferTask, slaveId *mesosproto.SlaveID) (mesosT
 			mesosutil.NewScalarResource("mem", MEM_PER_TASK),
 			mesosutil.NewScalarResource("disk", DISK_PER_TASK),
 		},
-		Data: json.Marshal(task),
+		Data: jsonData,
 	}
 	return
+}
+
+func newTaskForExecutor(task *TransferTask, executor *Executor,
+slaveId *mesosproto.SlaveID) *mesosproto.TaskInfo {
+	return newTask(task, executor.id, slaveId)
+}
+
+func newTaskAndExecutor(task *TransferTask,
+slaveId *mesosproto.SlaveID) *mesosproto.TaskInfo {
+	return newTask(task, newUuid(), slaveId)
 }
 
 func (scheduler *Scheduler) ResourceOffers(driver scheduler.SchedulerDriver,
 offers []*mesosproto.Offer)  {
 	for _, offer := range offers {
-		upsertSlave(&Slave{
+		slaveId, err := upsertSlave(&Slave{
 			uuid: offer.SlaveId.GetValue(),
+			hostname: *offer.Hostname,
 			status: "Active",
 		})
+		if err != nil {
+			logger.Println("Error upsert slave: ", err)
+			driver.DeclineOffer(offer.Id, &mesosproto.Filters{})
+			continue
+		}
 		var totalCpu, totalMemory, totalDisk float64
 		for _, resource := range offer.Resources {
 			switch resource.GetName() {
@@ -128,7 +145,7 @@ offers []*mesosproto.Offer)  {
 			driver.DeclineOffer(offer.Id, &mesosproto.Filters{})
 			continue
 		}
-		idleExecutors := getIdleExecutorsOnSlave(tx, offer.SlaveId.GetValue())
+		idleExecutors := getIdleExecutorsOnSlave(tx, slaveId)
 		slaveCapacity := Min(executorCapacity + len(idleExecutors), taskCapacity)
 		pendingTasks := getPendingTasks(tx, slaveCapacity)
 
@@ -152,19 +169,29 @@ offers []*mesosproto.Offer)  {
 			tx.Rollback()
 			continue
 		}
-		updateTaskStatus(tx, tasks)
+		initializeTaskStatus(tx, tasks, slaveId)
+		// TODO: reschedule Failed tasks
 	}
 }
 
 func (scheduler *Scheduler) OfferRescinded(driver scheduler.SchedulerDriver,
 offer *mesosproto.OfferID)  {
 	logger.Println("Offer rescinded: ", offer)
+	// TODO: track tasks
 }
 
 func (scheduler *Scheduler) StatusUpdate(driver scheduler.SchedulerDriver,
 taskStatus *mesosproto.TaskStatus)  {
-	logger.Println("Status update: task", taskStatus.TaskId.GetValue(),
-		" is in state ", taskStatus.State.Enum().String())
+	switch *taskStatus.State {
+	case mesosproto.TaskState_TASK_ERROR, mesosproto.TaskState_TASK_FAILED,
+		mesosproto.TaskState_TASK_LOST:
+		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Failed")
+	case mesosproto.TaskState_TASK_FINISHED:
+		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Finished")
+	default:
+		logger.Println("Status update: task", taskStatus.TaskId.GetValue(),
+			" is in state ", taskStatus.State.Enum().String())
+	}
 }
 
 func (scheduler *Scheduler) FrameworkMessage(driver scheduler.SchedulerDriver,
@@ -176,12 +203,14 @@ executorID *mesosproto.ExecutorID, slaveID *mesosproto.SlaveID, message string) 
 func (scheduler *Scheduler) SlaveLost(driver scheduler.SchedulerDriver,
 slaveID *mesosproto.SlaveID)  {
 	logger.Printf("Slave lost: %v", slaveID)
+	slaveLostUpdate(slaveID.GetValue())
 }
 
 func (scheduler *Scheduler) ExecutorLost(driver scheduler.SchedulerDriver,
 executorID *mesosproto.ExecutorID, slaveID *mesosproto.SlaveID, code int)  {
 	logger.Printf("Executor %q lost on slave %q code %d",
 		executorID, slaveID, code)
+	executorLostUpdate(executorID.GetValue())
 }
 
 func (scheduler *Scheduler) Error(driver scheduler.SchedulerDriver, error string)  {
