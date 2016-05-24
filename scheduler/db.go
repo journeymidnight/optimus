@@ -231,3 +231,8 @@ func slaveLostUpdate(slaveUuid string)  {
 	}
 }
 
+func getSecretKey(accessKey string) (secretKey string, err error) {
+	err = db.QueryRow("select secret_key from user where " +
+		"access_key = ?", accessKey).Scan(&secretKey)
+	return
+}
