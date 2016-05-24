@@ -3,15 +3,65 @@ package main
 import (
 	"flag"
 	"fmt"
-	"time"
 
 	exec "github.com/mesos/mesos-go/executor"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 
 	"git.letv.cn/zhangcan/optimus/common"
 	"encoding/json"
+	"net/url"
+	"strings"
+	"os"
+	"net/http"
+	"io"
 )
 
+
+var (
+	MAX_RETRY_TIMES = 3
+
+	results = make(chan *FileTask)
+)
+
+type FileTask struct  {
+	name string
+	sourceUrl string
+	destinationType string
+	destinationUrl string
+	status string // in Finished/Failed
+	retriedTimes int
+}
+
+func transfer(task *FileTask)  {
+	file, err := os.Create(task.name)
+	if err != nil {
+		fmt.Println("Error creating file: ", task.name)
+		task.status = "Failed"
+		results <- task
+		return
+	}
+	defer file.Close()
+
+	response, err := http.Get(task.sourceUrl)
+	if err != nil {
+		fmt.Println("Error downloading file: ", task.name)
+		task.status = "Failed"
+		results <- task
+		return
+	}
+	defer response.Body.Close()
+
+	n, err := io.Copy(file, response.Body)
+	if err != nil {
+		fmt.Println("Error downloading file: ", task.name)
+		task.status = "Failed"
+		results <- task
+		return
+	}
+	fmt.Println(n, "bytes downloaded")
+	task.status = "Finished"
+	results <- task
+}
 
 type megatronExecutor struct {
 	tasksLaunched int
@@ -60,7 +110,48 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 		return
 	}
 	fmt.Println("Task info data: ", task)
-	time.Sleep(10 * time.Second)
+
+	for _, sourceUrl := range task.SourceUrls {
+		urlParsed, err := url.Parse(sourceUrl)
+		if err != nil {
+			fmt.Println("Bad URL: ", sourceUrl)
+			updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_ERROR)
+			return
+		}
+		segments := strings.Split(urlParsed.Path, "/")
+		fileName := segments[len(segments) - 1]
+		t := &FileTask{
+			name: fileName,
+			sourceUrl: sourceUrl,
+			destinationType: task.DestinationType,
+			destinationUrl: task.DestinationBaseUrl,
+			retriedTimes: 0,
+		}
+		go transfer(t)
+	}
+	finished := 0
+	FOR:
+	for {
+		result := <- results
+		switch result.status {
+		case "Finished":
+			finished++
+			if finished == len(task.SourceUrls) {
+				break FOR
+			}
+		case "Failed":
+			if result.retriedTimes < MAX_RETRY_TIMES {
+				result.retriedTimes++
+				go transfer(result)
+			} else {
+				fmt.Println("URL failed for ", result.sourceUrl, "after retries")
+				updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FAILED)
+				return
+			}
+		default:
+			fmt.Println("Should NEVER hit here")
+		}
+	}
 
 	updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FINISHED)
 	fmt.Println("Task finished", taskInfo.GetName())
