@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"github.com/mesos/mesos-go/mesosproto"
 	"strconv"
+
+	"git.letv.cn/zhangcan/optimus/common"
 )
 
 func createDbConnection() *sql.DB {
@@ -25,7 +27,7 @@ func insertRequest(req *TransferRequest) (id int64, err error) {
 	return result.LastInsertId()
 }
 
-func insertTasks(tasks []*TransferTask) error {
+func insertTasks(tasks []*common.TransferTask) error {
 	for _, task := range tasks {
 		tx, err := db.Begin()
 		if err != nil {return err}
@@ -93,7 +95,7 @@ func getIdleExecutorsOnSlave(tx *sql.Tx, slaveId int64) (executors []*Executor) 
 	return
 }
 
-func getPendingTasks(tx *sql.Tx, limit int) (tasks []*TransferTask) {
+func getPendingTasks(tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
 	taskRows, err := tx.Query("select id, request_id, destination_type, destination_base_url from task " +
 		"where status = ? limit ? for update", "Pending", limit)
 	if err != nil {
@@ -102,7 +104,7 @@ func getPendingTasks(tx *sql.Tx, limit int) (tasks []*TransferTask) {
 	}
 	defer taskRows.Close()
 	for taskRows.Next() {
-		var task TransferTask
+		var task common.TransferTask
 		if err := taskRows.Scan(&task.Id, &task.RequestId, &task.DestinationType,
 			&task.DestinationBaseUrl); err != nil {
 			logger.Println("Row scan error: ", err)
@@ -164,8 +166,6 @@ func initializeTaskStatus(tx *sql.Tx, tasks []*mesosproto.TaskInfo, slaveId int6
 }
 
 func updateTask(taskId string, executorUuid string, status string, )  {
-	logger.Println("Updating task. task id:", taskId, "executor id:", executorUuid, "status:", status)
-
 	taskIdInt, _ := strconv.ParseInt(taskId, 10, 64)
 	_, err := db.Exec("update task set status = ? where id = ?", status, taskIdInt)
 	if err != nil {
@@ -180,8 +180,6 @@ func updateTask(taskId string, executorUuid string, status string, )  {
 }
 
 func executorLostUpdate(executorUuid string)  {
-	logger.Println("executor uuid: ", executorUuid)
-
 	var executorId int64
 	err := db.QueryRow("select id from executor where uuid = ?", executorUuid).Scan(&executorId)
 	if err != nil {
@@ -201,8 +199,6 @@ func executorLostUpdate(executorUuid string)  {
 }
 
 func slaveLostUpdate(slaveUuid string)  {
-	logger.Println("slave uuid: ", slaveUuid)
-
 	var slaveId int64
 	err := db.QueryRow("select id from slave where uuid = ?", slaveUuid).Scan(&slaveId)
 	if err != nil {

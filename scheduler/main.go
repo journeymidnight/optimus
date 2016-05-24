@@ -8,13 +8,15 @@ import (
 	"log"
 	"flag"
 	"database/sql"
+
+	"git.letv.cn/zhangcan/optimus/common"
 )
 
 var (
 	// TODO: replace global variables with config parameters
 	MASTER = "127.0.0.1:5050"
-	EXECUTOR_URL = "http://127.0.0.1:8000/main_6"
-	EXECUTE_CMD = "./main_6"
+	EXECUTOR_URL = "http://127.0.0.1:8000/main"
+	EXECUTE_CMD = "./main"
 	API_BIND_ADDRESS = "0.0.0.0:8080"
 	DB_CONNECTION_STRING = "root@tcp(127.0.0.1:3306)/optimus"
 	REQUEST_BUFFER = 10000
@@ -29,15 +31,6 @@ var (
 	requestBuffer chan TransferRequest
 )
 
-type TransferTask struct  {
-	Id int64 `json:"id"`
-	RequestId int64 `json:"requestId"`
-	SourceUrls []string `json:"sourceUrls"`
-	DestinationType string `json:"destinationType"`
-	DestinationBaseUrl string `json:"destinationBaseUrl"`
-	ExecutorId sql.NullInt64 `json:"executorId"`
-	Status string `json:"status"`// status is in Pending/Scheduled/Failed/Finished
-}
 
 func requestHandler()  {
 	for {
@@ -47,11 +40,11 @@ func requestHandler()  {
 			logger.Println("Error inserting request: ", request, "with error: ", err)
 			continue
 		}
-		tasks := []*TransferTask{}
+		tasks := []*common.TransferTask{}
 		cursor := 0
 		length := len(request.SourceUrls)
 		for {
-			t := TransferTask{
+			t := common.TransferTask{
 				RequestId: requestId,
 				DestinationType: request.DestinationType,
 				DestinationBaseUrl: request.DestinationBaseUrl,
@@ -77,7 +70,7 @@ func requestHandler()  {
 }
 
 func init()  {
-	flag.Parse() // mesos-go uses golang/glog, which requires parse flags first
+	flag.Parse() // mesos-go uses golang/glog, which requires to parse flags first
 }
 
 func main()  {

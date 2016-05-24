@@ -1,21 +1,3 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 package main
 
 import (
@@ -25,96 +7,96 @@ import (
 
 	exec "github.com/mesos/mesos-go/executor"
 	mesos "github.com/mesos/mesos-go/mesosproto"
+
+	"git.letv.cn/zhangcan/optimus/common"
+	"encoding/json"
 )
 
-var (
-	slowTasks = flag.Bool("slow_tasks", false, "When true tasks will take several seconds before responding with TASK_FINISHED; useful for debugging failover")
-)
 
-type exampleExecutor struct {
+type megatronExecutor struct {
 	tasksLaunched int
 }
 
-func newExampleExecutor() *exampleExecutor {
-	return &exampleExecutor{tasksLaunched: 0}
+func newExampleExecutor() *megatronExecutor {
+	return &megatronExecutor{tasksLaunched: 0}
 }
 
-func (exec *exampleExecutor) Registered(driver exec.ExecutorDriver, execInfo *mesos.ExecutorInfo, fwinfo *mesos.FrameworkInfo, slaveInfo *mesos.SlaveInfo) {
+func (exec *megatronExecutor) Registered(driver exec.ExecutorDriver,
+execInfo *mesos.ExecutorInfo, fwinfo *mesos.FrameworkInfo, slaveInfo *mesos.SlaveInfo) {
 	fmt.Println("Registered Executor on slave ", slaveInfo.GetHostname())
 }
 
-func (exec *exampleExecutor) Reregistered(driver exec.ExecutorDriver, slaveInfo *mesos.SlaveInfo) {
+func (exec *megatronExecutor) Reregistered(driver exec.ExecutorDriver, slaveInfo *mesos.SlaveInfo) {
 	fmt.Println("Re-registered Executor on slave ", slaveInfo.GetHostname())
 }
 
-func (exec *exampleExecutor) Disconnected(exec.ExecutorDriver) {
+func (exec *megatronExecutor) Disconnected(exec.ExecutorDriver) {
 	fmt.Println("Executor disconnected.")
 }
 
-func (exec *exampleExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *mesos.TaskInfo) {
-	fmt.Println("Launching task", taskInfo.GetName(), "with command", taskInfo.Command.GetValue())
-
+func updateStatus(driver exec.ExecutorDriver, taskId *mesos.TaskID, status mesos.TaskState)  {
 	runStatus := &mesos.TaskStatus{
-		TaskId: taskInfo.GetTaskId(),
-		State:  mesos.TaskState_TASK_RUNNING.Enum(),
+		TaskId: taskId,
+		State:  status.Enum(),
 	}
 	_, err := driver.SendStatusUpdate(runStatus)
 	if err != nil {
-		fmt.Println("Got error", err)
+		fmt.Println("Error sending status update: ", err)
 	}
+}
+
+func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *mesos.TaskInfo) {
+	fmt.Println("Launching task", taskInfo.GetName(), "with command", taskInfo.Command.GetValue())
+	updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_RUNNING)
 
 	exec.tasksLaunched++
 	fmt.Println("Total tasks launched ", exec.tasksLaunched)
-	//
-	// this is where one would perform the requested task
-	fmt.Println("Task info data: ", string(taskInfo.GetData()))
+
+	var task common.TransferTask
+	err := json.Unmarshal(taskInfo.GetData(), &task)
+	if err != nil {
+		fmt.Println("Malformed task info")
+		updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_ERROR)
+		return
+	}
+	fmt.Println("Task info data: ", task)
 	time.Sleep(10 * time.Second)
-	//
 
-	fmt.Println("Finishing task", taskInfo.GetName())
-	finStatus := &mesos.TaskStatus{
-		TaskId: taskInfo.GetTaskId(),
-		State:  mesos.TaskState_TASK_FINISHED.Enum(),
-	}
-	if _, err := driver.SendStatusUpdate(finStatus); err != nil {
-		fmt.Println("error sending FINISHED", err)
-	}
+	updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FINISHED)
 	fmt.Println("Task finished", taskInfo.GetName())
-	time.Sleep(3 * time.Second)
-	status, err := driver.Stop()
-	fmt.Println("Stop status ", status, "err ", err)
 }
 
-func (exec *exampleExecutor) KillTask(exec.ExecutorDriver, *mesos.TaskID) {
+func (exec *megatronExecutor) KillTask(driver exec.ExecutorDriver, taskId *mesos.TaskID) {
 	fmt.Println("Kill task")
+	driver.Stop()
 }
 
-func (exec *exampleExecutor) FrameworkMessage(driver exec.ExecutorDriver, msg string) {
+func (exec *megatronExecutor) FrameworkMessage(driver exec.ExecutorDriver, msg string) {
 	fmt.Println("Got framework message: ", msg)
 }
 
-func (exec *exampleExecutor) Shutdown(driver exec.ExecutorDriver) {
+func (exec *megatronExecutor) Shutdown(driver exec.ExecutorDriver) {
 	fmt.Println("Shutting down the executor")
 	status, err := driver.Stop()
 	fmt.Println("Stop status ", status, "err ", err)
 }
 
-func (exec *exampleExecutor) Error(driver exec.ExecutorDriver, err string) {
+func (exec *megatronExecutor) Error(driver exec.ExecutorDriver, err string) {
 	fmt.Println("Got error message:", err)
 }
 
-// -------------------------- func inits () ----------------- //
+
 func init() {
-	flag.Parse()
+	flag.Parse() // mesos-go uses golang/glog, which requires to parse flags first
 }
 
 func main() {
-	fmt.Println("Starting Example Executor (Go)")
+	fmt.Println("Starting Megatron...")
 
-	dconfig := exec.DriverConfig{
+	config := exec.DriverConfig{
 		Executor: newExampleExecutor(),
 	}
-	driver, err := exec.NewMesosExecutorDriver(dconfig)
+	driver, err := exec.NewMesosExecutorDriver(config)
 
 	if err != nil {
 		fmt.Println("Unable to create a ExecutorDriver ", err.Error())
@@ -122,13 +104,14 @@ func main() {
 
 	_, err = driver.Start()
 	if err != nil {
-		fmt.Println("Got error:", err)
+		fmt.Println("Failed to start:", err)
 		return
 	}
-	fmt.Println("Executor process has started and running.")
+	fmt.Println("Megatron has started and running")
+
 	_, err = driver.Join()
 	if err != nil {
-		fmt.Println("driver failed:", err)
+		fmt.Println("Driver failed:", err)
 	}
-	fmt.Println("executor terminating")
+	fmt.Println("Executor terminated")
 }

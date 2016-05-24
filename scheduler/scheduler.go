@@ -8,6 +8,8 @@ import (
 	"github.com/mesos/mesos-go/mesosutil"
 	"math"
 	"encoding/json"
+
+	"git.letv.cn/zhangcan/optimus/common"
 )
 
 type Scheduler struct{ // implements scheduler.Scheduler interface
@@ -43,7 +45,8 @@ func buildUris() []*mesosproto.CommandInfo_URI {
 		Value: &EXECUTOR_URL,
 		Executable: proto.Bool(true),
 		Extract: proto.Bool(false),
-		Cache: proto.Bool(true),
+		//Cache: proto.Bool(true),
+		Cache: proto.Bool(false),
 	})
 	return uris
 }
@@ -67,7 +70,7 @@ func calculateCapacity(cpu float64, memory float64, disk float64) (executor int,
 	return
 }
 
-func newTask(task *TransferTask, executorId string,
+func newTask(task *common.TransferTask, executorId string,
 slaveId *mesosproto.SlaveID) (mesosTask *mesosproto.TaskInfo) {
 	taskID := &mesosproto.TaskID{
 		Value: proto.String(strconv.FormatInt(task.Id, 10)),
@@ -102,13 +105,13 @@ slaveId *mesosproto.SlaveID) (mesosTask *mesosproto.TaskInfo) {
 	return
 }
 
-func newTaskForExecutor(task *TransferTask, executor *Executor,
+func newTaskForExecutor(task *common.TransferTask, executor *Executor,
 slaveId *mesosproto.SlaveID) *mesosproto.TaskInfo {
 	logger.Println("existing executor: ", task.Id)
 	return newTask(task, executor.id, slaveId)
 }
 
-func newTaskAndExecutor(task *TransferTask,
+func newTaskAndExecutor(task *common.TransferTask,
 slaveId *mesosproto.SlaveID) *mesosproto.TaskInfo {
 	logger.Println("new executor: ", task.Id)
 	return newTask(task, newUuid(), slaveId)
