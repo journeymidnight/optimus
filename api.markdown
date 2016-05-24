@@ -54,7 +54,8 @@ Json Format:
 		"http://bad"
 	    ],
 	    "target-type": "s3s",
-	    "target-bucket": "bucketone"
+	    "target-bucket": "bucketone",
+	    "target-acl":"public-read"
 	}
 	
 	Vaas
