@@ -2,48 +2,47 @@
 
 用单独的验证系统，我们知道用户的AK/SK
 
-transfer系统专用
-
-AK,SK
+transfer系统专用AK/SK
 
 # 验证方法
 
 build signature string
 
 signatureStr=
-	Method + '\n'
+	HTTP_Method + '\n'
 	Date + '\n'
-	Host + '\n'
-	Path
+	URL_Host + '\n'
+	URL_Path
 
-注意: 没有后面的query
+注意: URL标准格式为：```scheme://[userinfo@]host/path[?query][#fragment]```
 
 Date format
 
 	lua:
 	print(os.date("!%a, %d %b %Y %H:%M:%S %Z"))
 	'Tue, 24 May 2016 03:25:18 GMT'
-
+	
 	python:
 	print time.strftime('%a, %d %b %Y %H:%M:%S %Z')
 	'Tue, 24 May 2016 11:45:57 CST'
 
-Add a Header
+增加如下Header:
 
 Authorization: AK:base64(hmac(signatureStr, SK))
+
+Date: Date Format
 
 #提交任务
 
 Method:PUT
 
-URL:  /submittask?token=$token&callback=http://yourtask
+URL:  /transferjob?token=$token&callback=http://callback_url
 
-URL:  /submittask
+URL:  /transferjob
+
+token由用户指定，用于callback里用户方的验证
 
 Body:
-
-
-token由用户指定
 
 Json Format:
 
@@ -57,7 +56,7 @@ Json Format:
 	    "target-type": "s3s",
 	    "target-bucket": "bucketone"
 	}
-
+	
 	Vaas
 	{
 	    "origin-files": [
@@ -74,21 +73,21 @@ code:200
 
 Json Format: 
 
-	{"taskid":"1234567"}
+	{"jobid":"1234567"}
 
 #Callback 请求
 
 Method:PUT
 
 
-URL:用户指定$token
+URL: http://callback_url?$token
 
 Body:
 
 Json Format:
 
 	{
-	"taskid":"1234567",
+	"jobid":"1234567",
 	"success-files":[
 		"http://abc",
 		"http://def",
@@ -102,7 +101,7 @@ Json Format:
 #查询请求
 
 Method:GET
-URL:/status?taskid=343434
+URL:/status?jobid=343434
 
 Response:
 
@@ -111,16 +110,15 @@ body:
 Json Format:
 
 	{
-	"taskid":"1234567",
+	"jobid":"1234567",
 	"success-files":[
 		"http://abc",
 		"http://def",
-	]
+	],
 	"failed-files":[
 		"http://bad"
-	]
-
-	"queue-files"[
+	],
+	"queued-files"[
 		"http://queue.file"
 	]
 	}
