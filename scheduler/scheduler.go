@@ -120,7 +120,7 @@ slaveId *mesosproto.SlaveID) *mesosproto.TaskInfo {
 func (scheduler *Scheduler) ResourceOffers(driver scheduler.SchedulerDriver,
 offers []*mesosproto.Offer)  {
 	for _, offer := range offers {
-		slaveId, err := upsertSlave(&Slave{
+		err := upsertSlave(&Slave{
 			uuid: offer.SlaveId.GetValue(),
 			hostname: *offer.Hostname,
 			status: "Active",
@@ -151,7 +151,7 @@ offers []*mesosproto.Offer)  {
 			driver.DeclineOffer(offer.Id, &mesosproto.Filters{})
 			continue
 		}
-		idleExecutors := getIdleExecutorsOnSlave(tx, slaveId)
+		idleExecutors := getIdleExecutorsOnSlave(tx, offer.SlaveId.GetValue())
 		slaveCapacity := Min(executorCapacity + len(idleExecutors), taskCapacity)
 		pendingTasks := getPendingTasks(tx, slaveCapacity)
 
@@ -175,7 +175,7 @@ offers []*mesosproto.Offer)  {
 			tx.Rollback()
 			continue
 		}
-		initializeTaskStatus(tx, tasks, slaveId)
+		initializeTaskStatus(tx, tasks, offer.SlaveId.GetValue())
 		// TODO: reschedule Failed tasks
 	}
 }

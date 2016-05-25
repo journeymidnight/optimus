@@ -19,6 +19,9 @@ CREATE TABLE job (
   id BIGINT NOT NULL AUTO_INCREMENT,
   uuid CHAR(60) NOT NULL UNIQUE,
   create_time DATETIME,
+  complete_time DATETIME,
+  callback_token VARCHAR(100),
+  callback_url TEXT,
   PRIMARY KEY (id),
   INDEX (uuid)
 );
@@ -37,7 +40,7 @@ DROP TABLE IF EXISTS executor;
 CREATE TABLE executor (
   id BIGINT NOT NULL AUTO_INCREMENT,
   uuid CHAR(60) NOT NULL UNIQUE,
-  slave_uuid CHAR(60) NOT NULL UNIQUE,
+  slave_uuid CHAR(60) NOT NULL,
   task_running INT DEFAULT 0,
   status VARCHAR(20) NOT NULL,
   PRIMARY KEY (id),
@@ -49,10 +52,11 @@ CREATE TABLE executor (
 DROP TABLE IF EXISTS task;
 CREATE TABLE task (
   id BIGINT NOT NULL AUTO_INCREMENT,
-  job_uuid CHAR(60) NOT NULL UNIQUE,
-  executor_uuid CHAR(60) NOT NULL UNIQUE,
+  job_uuid CHAR(60) NOT NULL,
+  executor_uuid CHAR(60),
   target_type VARCHAR(20) NOT NULL,
   target_bucket VARCHAR(100),
+  target_acl VARCHAR(20),
   status VARCHAR(20) NOT NULL,
   PRIMARY KEY (id),
   INDEX (job_uuid),
@@ -65,7 +69,7 @@ CREATE TABLE task (
 DROP TABLE IF EXISTS url;
 CREATE TABLE url (
   id BIGINT NOT NULL AUTO_INCREMENT,
-  task_id BIGINT NOT NULL UNIQUE,
+  task_id BIGINT NOT NULL,
   origin_url TEXT NOT NULL,
   target_url TEXT,
   status VARCHAR(20) NOT NULL,
@@ -76,3 +80,6 @@ CREATE TABLE url (
 
 SET FOREIGN_KEY_CHECKS = 1;
 
+-- For tests
+INSERT INTO user (access_key, secret_key)
+    VALUES ("hehe", "haha");

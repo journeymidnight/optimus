@@ -25,9 +25,11 @@ var (
 
 type FileTask struct  {
 	name string
-	sourceUrl string
-	destinationType string
-	destinationUrl string
+	originUrl string
+	targetUrl string
+	targetType string
+	targetBucket string
+	targetAcl string
 	status string // in Finished/Failed
 	retriedTimes int
 }
@@ -42,7 +44,7 @@ func transfer(task *FileTask)  {
 	}
 	defer file.Close()
 
-	response, err := http.Get(task.sourceUrl)
+	response, err := http.Get(task.originUrl)
 	if err != nil {
 		fmt.Println("Error downloading file: ", task.name)
 		task.status = "Failed"
@@ -111,7 +113,7 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 	}
 	fmt.Println("Task info data: ", task)
 
-	for _, sourceUrl := range task.SourceUrls {
+	for _, sourceUrl := range task.OriginUrls {
 		urlParsed, err := url.Parse(sourceUrl)
 		if err != nil {
 			fmt.Println("Bad URL: ", sourceUrl)
@@ -122,9 +124,10 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 		fileName := segments[len(segments) - 1]
 		t := &FileTask{
 			name: fileName,
-			sourceUrl: sourceUrl,
-			destinationType: task.DestinationType,
-			destinationUrl: task.DestinationBaseUrl,
+			originUrl: sourceUrl,
+			targetType: task.TargetType,
+			targetBucket: task.TargetBucket,
+			targetAcl: task.TargetAcl,
 			retriedTimes: 0,
 		}
 		go transfer(t)
@@ -136,7 +139,7 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 		switch result.status {
 		case "Finished":
 			finished++
-			if finished == len(task.SourceUrls) {
+			if finished == len(task.OriginUrls) {
 				break FOR
 			}
 		case "Failed":
@@ -144,7 +147,7 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 				result.retriedTimes++
 				go transfer(result)
 			} else {
-				fmt.Println("URL failed for ", result.sourceUrl, "after retries")
+				fmt.Println("URL failed for ", result.originUrl, "after retries")
 				updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FAILED)
 				return
 			}

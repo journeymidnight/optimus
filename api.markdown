@@ -30,7 +30,7 @@ Date format
 
 Authorization: AK:base64(hmac(signatureStr, SK))
 
-Date: Date Format
+x-date: Date Format
 
 #提交任务
 

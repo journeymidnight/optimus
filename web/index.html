@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Optimus</title>
+    <script type="text/javascript" src="js/hmac-sha1.js"></script>
+    <script type="text/javascript" src="js/enc-base64-min.js"></script>
+    <script type="text/javascript" src="js/jquery-2.2.4.min.js"></script>
+</head>
+<body>
+<script type="text/javascript">
+   $(function() {
+       var now = new Date().toUTCString();
+       var message = 'PUT\n' + now + '\n' + location.host + '\n' + '/transferjob';
+       console.log(message);
+       var hmac = CryptoJS.HmacSHA1(message, 'haha');
+       var base64 = CryptoJS.enc.Base64.stringify(hmac);
+       console.log(base64);
+       $.ajax({
+           url: '/transferjob?token=123&callback=http://le.com',
+           type: 'PUT',
+           headers: {
+               "x-date": now,
+               Authorization: 'hehe:' + base64
+           },
+           data: JSON.stringify({
+               "origin-files": [
+                   "http://www.le.com/index.html",
+                   "http://git.letv.cn/zhangcan/watchtv/repository/archive.zip"
+               ],
+               "target-type": "s3s",
+               "target-bucket": "bucket",
+               "target-acl": "public-read"
+           }),
+           success: function(data) {
+                console.log(data)
+           },
+           error: function(data) {
+               console.log(data)
+           }
+       })
+   })
+</script>
+
+</body>
+</html>

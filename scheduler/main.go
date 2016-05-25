@@ -35,28 +35,28 @@ var (
 func requestHandler()  {
 	for {
 		request := <- requestBuffer
-		requestId, err := insertRequest(&request)
+		err := insertJob(&request)
 		if err != nil {
 			logger.Println("Error inserting request: ", request, "with error: ", err)
 			continue
 		}
 		tasks := []*common.TransferTask{}
 		cursor := 0
-		length := len(request.SourceUrls)
+		length := len(request.OriginUrls)
 		for {
 			t := common.TransferTask{
-				RequestId: requestId,
-				DestinationType: request.DestinationType,
-				DestinationBaseUrl: request.DestinationBaseUrl,
-				ExecutorId: sql.NullInt64{Valid: false},
+				JobUuid: request.uuid,
+				TargetType: request.TargetType,
+				TargetBucket: request.TargetBucket,
+				TargetAcl: request.TargetAcl,
 				Status: "Pending",
 			}
 			if length > cursor + FILES_PER_TASK {
-				t.SourceUrls = request.SourceUrls[cursor:cursor+FILES_PER_TASK]
+				t.OriginUrls = request.OriginUrls[cursor:cursor+FILES_PER_TASK]
 				tasks = append(tasks, &t)
 				cursor += FILES_PER_TASK
 			} else {
-				t.SourceUrls = request.SourceUrls[cursor:length]
+				t.OriginUrls = request.OriginUrls[cursor:length]
 				tasks = append(tasks, &t)
 				break
 			}
