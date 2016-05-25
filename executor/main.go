@@ -8,6 +8,7 @@ import (
 	mesos "github.com/mesos/mesos-go/mesosproto"
 
 	"git.letv.cn/zhangcan/optimus/common"
+	"git.letv.cn/zhangcan/optimus/executor/s3"
 	"encoding/json"
 	"net/url"
 	"strings"
@@ -19,6 +20,10 @@ import (
 
 var (
 	MAX_RETRY_TIMES = 3
+	ACCESS_KEY = "9EEIWGS705M4ZJ3N7FEM"
+	SECRET_KEY = "8humW3nOraybmbIjY6s15IVned87gz/nUrgxYlEX"
+	S3_ENDPOINT = "http://s3.lecloud.com"
+	CHUNK_SIZE = 5 << 20 // 5 MB
 
 	results = make(chan *FileTask)
 )
@@ -34,8 +39,22 @@ type FileTask struct  {
 	retriedTimes int
 }
 
+func s3Upload(file io.Reader, filename string, bucket string, acl string) (err error) {
+	d := s3.NewDriver(ACCESS_KEY, SECRET_KEY, S3_ENDPOINT, bucket)
+	uploader, err := d.NewSimpleMultiPartWriter(filename, CHUNK_SIZE, acl)
+	if err != nil {return }
+	defer uploader.Close()
+
+	n, err := io.Copy(uploader, file)
+	if err != nil {return }
+	fmt.Println("File", filename, "uploaded with", n, "bytes")
+	return nil
+}
+
 func transfer(task *FileTask)  {
-	file, err := os.Create(task.name)
+	filename := strings.Replace(strings.Replace(task.originUrl, "/", "_", -1),
+		":", "_", -1)  // escape "/" and ":" in url so it could be used as filename
+	file, err := os.Create(filename)
 	if err != nil {
 		fmt.Println("Error creating file: ", task.name)
 		task.status = "Failed"
@@ -60,7 +79,29 @@ func transfer(task *FileTask)  {
 		results <- task
 		return
 	}
-	fmt.Println(n, "bytes downloaded")
+	fmt.Println("File", task.name, "downloaded with", n, "bytes")
+	file.Seek(0, 0)
+	switch task.targetType {
+	case "s3s":
+		err = s3Upload(file, task.name, task.targetBucket, task.targetAcl)
+	case "Vaas":
+		fmt.Println("Vaas upload has not been implemented")
+		task.status = "Failed"
+		results <- task
+		return
+	default:
+		fmt.Println("Unknown target type")
+		task.status = "Failed"
+		results <- task
+		return
+	}
+	if err != nil {
+		fmt.Println("Uploading error: ", err)
+		task.status = "Failed"
+		results <- task
+		return
+	}
+
 	task.status = "Finished"
 	results <- task
 }

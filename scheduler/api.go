@@ -20,32 +20,33 @@ func response(w http.ResponseWriter, statusCode int, message string)  {
 	w.Write([]byte(message))
 }
 
-func verifyRequest(r *http.Request) bool {
+func verifyRequest(r *http.Request) (accessKey string, _ bool) {
 	dateString := r.Header.Get("x-date")
-	if dateString == "" {return false}
+	if dateString == "" {return "", false}
 	date, err := time.Parse("Mon, 02 Jan 2006 15:04:05 GMT", dateString)
-	if err != nil {return false}
+	if err != nil {return "", false}
 	now := time.Now()
 	diff := now.Sub(date)
 	if diff > AUTH_GRACE_TIME || diff < -1 * AUTH_GRACE_TIME {
-		return false
+		return "", false
 	}
 	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {return false}
+	if authHeader == "" {return "", false}
 	segments := strings.Split(authHeader, ":")
-	accessKey := segments[0]
-	if len(segments) < 2 {return false}
+	accessKey = segments[0]
+	if len(segments) < 2 {return "", false}
 	messageMac, err := base64.StdEncoding.DecodeString(segments[1])
-	if err != nil {return false}
+	if err != nil {return "", false}
 	secretKey, err := getSecretKey(accessKey)
-	if err != nil {return false}
+	if err != nil {return "", false}
 	mac := hmac.New(sha1.New, []byte(secretKey))
 	mac.Write([]byte(r.Method + "\n" + dateString + "\n" + r.Host + "\n" + r.URL.Path))
 	expectedMac := mac.Sum(nil)
-	return hmac.Equal(expectedMac, messageMac)
+	return accessKey, hmac.Equal(expectedMac, messageMac)
 }
 
 type TransferRequest struct {
+	accessKey string
 	OriginUrls []string `json:"origin-files"`
 	TargetType string `json:"target-type"` // in s3s/Vaas
 	TargetBucket string `json:"target-bucket"`
@@ -64,11 +65,13 @@ func putTransferJobHandler(w http.ResponseWriter, r *http.Request)  {
 		response(w, http.StatusBadRequest, "Only PUT method is allowed")
 		return
 	}
-	if !verifyRequest(r) {
+	accessKey, verified := verifyRequest(r)
+	if !verified {
 		response(w, http.StatusForbidden, "Failed to authenticate request")
 		return
 	}
 	var req TransferRequest
+	req.accessKey = accessKey
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
 		response(w, http.StatusBadRequest, "Bad JSON body")

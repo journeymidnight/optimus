@@ -21,7 +21,8 @@ func createDbConnection() *sql.DB {
 
 func insertJob(req *TransferRequest) (err error) {
 	_ , err = db.Exec("insert job set id = 0, uuid = ?, create_time = NOW(), " +
-		"callback_url = ?, callback_token = ?", req.uuid, req.callbackUrl, req.callbackToken)
+		"callback_url = ?, callback_token = ?, access_key = ?",
+		req.uuid, req.callbackUrl, req.callbackToken, req.accessKey)
 	return err
 }
 

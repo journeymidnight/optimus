@@ -18,12 +18,14 @@ DROP TABLE IF EXISTS job;
 CREATE TABLE job (
   id BIGINT NOT NULL AUTO_INCREMENT,
   uuid CHAR(60) NOT NULL UNIQUE,
+  access_key VARCHAR(50) NOT NULL,
   create_time DATETIME,
   complete_time DATETIME,
   callback_token VARCHAR(100),
   callback_url TEXT,
   PRIMARY KEY (id),
-  INDEX (uuid)
+  INDEX (uuid),
+  FOREIGN KEY (access_key) REFERENCES user(access_key)
 );
 
 DROP TABLE IF EXISTS slave;

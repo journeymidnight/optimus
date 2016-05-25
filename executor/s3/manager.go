@@ -1,4 +1,4 @@
-package main
+package s3
 
 import (
   "github.com/goamz/goamz/s3"
@@ -32,20 +32,20 @@ func NewDriver(ak string, sk string, endpoint string, xbucket string) *Driver {
 		"",
 		true,
 		true,
-        "https://sdb.us-west-1.amazonaws.com",
-        "",
-        "https://sns.us-west-1.amazonaws.com",
-        "https://sqs.us-west-1.amazonaws.com",
-        "https://iam.amazonaws.com",
-        "https://elasticloadbalancing.us-west-1.amazonaws.com",
-        "https://dynamodb.us-west-1.amazonaws.com",
-        aws.ServiceInfo{"https://monitoring.us-west-1.amazonaws.com", aws.V2Signature},
-        "https://autoscaling.us-west-1.amazonaws.com",
-        aws.ServiceInfo{"https://rds.us-west-1.amazonaws.com", aws.V2Signature},
-        "https://sts.amazonaws.com",
-        "https://cloudformation.us-west-1.amazonaws.com",
-        "https://ecs.us-west-1.amazonaws.com",
-        "https://streams.dynamodb.us-west-1.amazonaws.com",
+		"https://sdb.us-west-1.amazonaws.com",
+		"",
+		"https://sns.us-west-1.amazonaws.com",
+		"https://sqs.us-west-1.amazonaws.com",
+		"https://iam.amazonaws.com",
+		"https://elasticloadbalancing.us-west-1.amazonaws.com",
+		"https://dynamodb.us-west-1.amazonaws.com",
+		aws.ServiceInfo{"https://monitoring.us-west-1.amazonaws.com", aws.V2Signature},
+		"https://autoscaling.us-west-1.amazonaws.com",
+		aws.ServiceInfo{"https://rds.us-west-1.amazonaws.com", aws.V2Signature},
+		"https://sts.amazonaws.com",
+		"https://cloudformation.us-west-1.amazonaws.com",
+		"https://ecs.us-west-1.amazonaws.com",
+		"https://streams.dynamodb.us-west-1.amazonaws.com",
 	}
 
 	auth := aws.Auth{AccessKey:ak,SecretKey:sk}
