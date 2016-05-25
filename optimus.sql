@@ -23,6 +23,7 @@ CREATE TABLE job (
   complete_time DATETIME,
   callback_token VARCHAR(100),
   callback_url TEXT,
+  status VARCHAR(20) NOT NULL,
   PRIMARY KEY (id),
   INDEX (uuid),
   FOREIGN KEY (access_key) REFERENCES user(access_key)

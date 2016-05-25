@@ -107,13 +107,11 @@ slaveId *mesosproto.SlaveID) (mesosTask *mesosproto.TaskInfo) {
 
 func newTaskForExecutor(task *common.TransferTask, executor *Executor,
 slaveId *mesosproto.SlaveID) *mesosproto.TaskInfo {
-	logger.Println("existing executor: ", task.Id)
 	return newTask(task, executor.id, slaveId)
 }
 
 func newTaskAndExecutor(task *common.TransferTask,
 slaveId *mesosproto.SlaveID) *mesosproto.TaskInfo {
-	logger.Println("new executor: ", task.Id)
 	return newTask(task, newUuid(), slaveId)
 }
 
@@ -194,6 +192,7 @@ taskStatus *mesosproto.TaskStatus)  {
 		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Failed")
 	case mesosproto.TaskState_TASK_FINISHED:
 		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Finished")
+		tryFinishJob(taskStatus.TaskId.GetValue())
 	default:
 		logger.Println("Status update: task", taskStatus.TaskId.GetValue(),
 			" is in state ", taskStatus.State.Enum().String())
@@ -202,8 +201,15 @@ taskStatus *mesosproto.TaskStatus)  {
 
 func (scheduler *Scheduler) FrameworkMessage(driver scheduler.SchedulerDriver,
 executorID *mesosproto.ExecutorID, slaveID *mesosproto.SlaveID, message string)  {
+	var urlUpdate common.UrlUpdate
+	err := json.Unmarshal([]byte(message), &urlUpdate)
+	if err != nil {
+		logger.Println("Malformed framework message: ", message, "with error: ", err)
+		return
+	}
 	logger.Printf("Framework message from executor %q slave %q: %q\n",
-		executorID, slaveID, message)
+		executorID, slaveID, urlUpdate)
+	updateUrl(&urlUpdate)
 }
 
 func (scheduler *Scheduler) SlaveLost(driver scheduler.SchedulerDriver,

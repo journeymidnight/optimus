@@ -111,6 +111,13 @@ func putTransferJobHandler(w http.ResponseWriter, r *http.Request)  {
 	}
 }
 
+type JobResult struct {
+	JobUuid string `json:"jobid"`
+	SuccessUrls []string `json:"success-files"`
+	FailedUrls []string `json:"failed-files"`
+	PendingUrls []string `json:"queued-files"`
+}
+
 func startApiServer()  {
 	http.HandleFunc("/transferjob", putTransferJobHandler)
 	http.Handle("/", http.FileServer(http.Dir("../web")))

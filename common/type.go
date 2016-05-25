@@ -9,3 +9,10 @@ type TransferTask struct  {
 	TargetAcl string `json:"targetAcl"`
 	Status string `json:"status"`// status is in Pending/Scheduled/Failed/Finished
 }
+
+type UrlUpdate struct {
+	OriginUrl string `json:"originUrl"`
+	TargetUrl string `json:"targetUrl"`
+	TaskId int64 `json:"taskId"`
+	Status string `json:"status"` // status is in Pending/Finished/Failed
+}

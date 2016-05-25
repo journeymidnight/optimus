@@ -21,8 +21,8 @@ func createDbConnection() *sql.DB {
 
 func insertJob(req *TransferRequest) (err error) {
 	_ , err = db.Exec("insert job set id = 0, uuid = ?, create_time = NOW(), " +
-		"callback_url = ?, callback_token = ?, access_key = ?",
-		req.uuid, req.callbackUrl, req.callbackToken, req.accessKey)
+		"callback_url = ?, callback_token = ?, access_key = ?, status = ?",
+		req.uuid, req.callbackUrl, req.callbackToken, req.accessKey, "Pending")
 	return err
 }
 
@@ -143,11 +143,26 @@ func initializeTaskStatus(tx *sql.Tx, tasks []*mesosproto.TaskInfo, slaveUuid st
 	tx.Commit()
 }
 
+func updateUrl(update *common.UrlUpdate)  {
+	_, err := db.Exec("update url set status = ?, target_url = ? where " +
+		"task_id = ? and origin_url = ?",
+		update.Status, update.TargetUrl, update.TaskId, update.OriginUrl)
+	if err != nil {
+		logger.Println("Error updating url: ", err)
+	}
+}
+
 func updateTask(taskId string, executorUuid string, status string, )  {
 	taskIdInt, _ := strconv.ParseInt(taskId, 10, 64)
 	_, err := db.Exec("update task set status = ? where id = ?", status, taskIdInt)
 	if err != nil {
 		logger.Println("Error updating status for task ", taskId, "with error ", err)
+	}
+	// also update status of pending files
+	_, err = db.Exec("update url set status = ? where " +
+		"task_id = ? and status = ?", status, taskId, "Pending")
+	if err != nil {
+		logger.Println("Error updating url status for task ", taskId, "with error ", err)
 	}
 	// Note here we assume the status is transforming from "Scheduled" to others
 	_, err = db.Exec("update executor set task_running = task_running - 1 where " +
@@ -155,6 +170,48 @@ func updateTask(taskId string, executorUuid string, status string, )  {
 	if err != nil {
 		logger.Println("Error updating task running count: ", err)
 	}
+}
+
+func tryFinishJob(taskId string)  {
+	var jobUuid string
+	err := db.QueryRow("select job_uuid from task where id = ?", taskId).Scan(&jobUuid)
+	if err != nil {
+		logger.Println("Error querying job uuid: ", err)
+		return
+	}
+	var failed, finished, total int
+	err = db.QueryRow("select count(*) from task where " +
+		"job_uuid = ? and status = ?", jobUuid, "Finished").Scan(&finished)
+	if err != nil {
+		logger.Println("Error querying finished task number: ", err)
+		return
+	}
+	err = db.QueryRow("select count(*) from task where " +
+		"job_uuid = ? and status = ?", jobUuid, "Failed").Scan(&failed)
+	if err != nil {
+		logger.Println("Error querying failed task number: ", err)
+		return
+	}
+	err = db.QueryRow("select count(*) from task where " +
+	"job_uuid = ?", jobUuid).Scan(&total)
+	if err != nil {
+		logger.Println("Error querying total task number: ", err)
+		return
+	}
+	if failed + finished == total {
+		if failed > 0 {
+			_, err = db.Exec("update job set status = ? where " +
+				"uuid = ?", "Failed", jobUuid)
+		} else  {
+			_, err = db.Exec("update job set complete_time = NOW(), status = ? where " +
+				"uuid = ?", "Finished", jobUuid)
+		}
+		if err != nil {
+			logger.Println("Error updating job status: ", err)
+		}
+		// TODO: send callback if necessary
+	}
+	logger.Println(failed, finished, total)
 }
 
 func executorLostUpdate(executorUuid string)  {

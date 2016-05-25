@@ -15,6 +15,7 @@ import (
 	"os"
 	"net/http"
 	"io"
+	"strconv"
 )
 
 
@@ -39,7 +40,7 @@ type FileTask struct  {
 	retriedTimes int
 }
 
-func s3Upload(file io.Reader, filename string, bucket string, acl string) (err error) {
+func s3Upload(file io.Reader, filename string, bucket string, acl string) (targetUrl string, err error) {
 	d := s3.NewDriver(ACCESS_KEY, SECRET_KEY, S3_ENDPOINT, bucket)
 	uploader, err := d.NewSimpleMultiPartWriter(filename, CHUNK_SIZE, acl)
 	if err != nil {return }
@@ -48,10 +49,12 @@ func s3Upload(file io.Reader, filename string, bucket string, acl string) (err e
 	n, err := io.Copy(uploader, file)
 	if err != nil {return }
 	fmt.Println("File", filename, "uploaded with", n, "bytes")
-	return nil
+	targetUrl = S3_ENDPOINT + "/" + bucket + "/" + filename
+	return
 }
 
-func transfer(task *FileTask)  {
+func transfer(task *FileTask) {
+	var err error
 	filename := strings.Replace(strings.Replace(task.originUrl, "/", "_", -1),
 		":", "_", -1)  // escape "/" and ":" in url so it could be used as filename
 	file, err := os.Create(filename)
@@ -81,9 +84,10 @@ func transfer(task *FileTask)  {
 	}
 	fmt.Println("File", task.name, "downloaded with", n, "bytes")
 	file.Seek(0, 0)
+	var targetUrl string
 	switch task.targetType {
 	case "s3s":
-		err = s3Upload(file, task.name, task.targetBucket, task.targetAcl)
+		targetUrl, err = s3Upload(file, task.name, task.targetBucket, task.targetAcl)
 	case "Vaas":
 		fmt.Println("Vaas upload has not been implemented")
 		task.status = "Failed"
@@ -103,6 +107,7 @@ func transfer(task *FileTask)  {
 	}
 
 	task.status = "Finished"
+	task.targetUrl = targetUrl
 	results <- task
 }
 
@@ -127,7 +132,7 @@ func (exec *megatronExecutor) Disconnected(exec.ExecutorDriver) {
 	fmt.Println("Executor disconnected.")
 }
 
-func updateStatus(driver exec.ExecutorDriver, taskId *mesos.TaskID, status mesos.TaskState)  {
+func updateTaskStatus(driver exec.ExecutorDriver, taskId *mesos.TaskID, status mesos.TaskState)  {
 	runStatus := &mesos.TaskStatus{
 		TaskId: taskId,
 		State:  status.Enum(),
@@ -138,9 +143,29 @@ func updateStatus(driver exec.ExecutorDriver, taskId *mesos.TaskID, status mesos
 	}
 }
 
+func updateFileStatus(driver exec.ExecutorDriver, taskId string, fileTask *FileTask)  {
+	id, err := strconv.ParseInt(taskId, 10, 64)
+	if err != nil {
+		fmt.Println("Error converting taskId to int64: ", err)
+		return
+	}
+	update := common.UrlUpdate{
+		OriginUrl: fileTask.originUrl,
+		TargetUrl: fileTask.targetUrl,
+		TaskId: id,
+		Status: fileTask.status,
+	}
+	jsonUpdate, err := json.Marshal(update)
+	if err != nil {
+		fmt.Println("Error marshal json: ", err)
+		return
+	}
+	driver.SendFrameworkMessage(string(jsonUpdate))
+}
+
 func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *mesos.TaskInfo) {
 	fmt.Println("Launching task", taskInfo.GetName(), "with command", taskInfo.Command.GetValue())
-	updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_RUNNING)
+	updateTaskStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_RUNNING)
 
 	exec.tasksLaunched++
 	fmt.Println("Total tasks launched ", exec.tasksLaunched)
@@ -148,8 +173,8 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 	var task common.TransferTask
 	err := json.Unmarshal(taskInfo.GetData(), &task)
 	if err != nil {
-		fmt.Println("Malformed task info")
-		updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_ERROR)
+		fmt.Println("Malformed task info:", err)
+		updateTaskStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_ERROR)
 		return
 	}
 	fmt.Println("Task info data: ", task)
@@ -158,7 +183,7 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 		urlParsed, err := url.Parse(sourceUrl)
 		if err != nil {
 			fmt.Println("Bad URL: ", sourceUrl)
-			updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_ERROR)
+			updateTaskStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_ERROR)
 			return
 		}
 		segments := strings.Split(urlParsed.Path, "/")
@@ -180,6 +205,7 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 		switch result.status {
 		case "Finished":
 			finished++
+			updateFileStatus(driver, taskInfo.TaskId.GetValue(), result)
 			if finished == len(task.OriginUrls) {
 				break FOR
 			}
@@ -189,7 +215,7 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 				go transfer(result)
 			} else {
 				fmt.Println("URL failed for ", result.originUrl, "after retries")
-				updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FAILED)
+				updateTaskStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FAILED)
 				return
 			}
 		default:
@@ -197,7 +223,7 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 		}
 	}
 
-	updateStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FINISHED)
+	updateTaskStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FINISHED)
 	fmt.Println("Task finished", taskInfo.GetName())
 }
 
