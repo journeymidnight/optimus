@@ -14,6 +14,7 @@ import (
 
 var (
 	AUTH_GRACE_TIME = 5 * time.Minute
+	WEB_ROOT = "../web"
 )
 
 func response(w http.ResponseWriter, statusCode int, message string)  {
@@ -178,7 +179,7 @@ func getJobStatusHandler(w http.ResponseWriter, r *http.Request)  {
 func startApiServer()  {
 	http.HandleFunc("/transferjob", putTransferJobHandler)
 	http.HandleFunc("/status", getJobStatusHandler)
-	http.Handle("/", http.FileServer(http.Dir("../web")))
+	http.Handle("/", http.FileServer(http.Dir(WEB_ROOT)))
 	logger.Println("Starting API server...")
 	err := http.ListenAndServe(API_BIND_ADDRESS, nil)
 	if err != nil {

@@ -1,0 +1,20 @@
+.no-border-radius {
+    -webkit-border-radius: 0;
+    -moz-border-radius: 0;
+    border-radius: 0;
+}
+.message {
+    z-index: 9999;
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 45%;
+}
+
+.shadow {
+    box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
+}
+
+.over-flow-scroll {
+    overflow: scroll;
+}
