@@ -172,6 +172,35 @@ func updateTask(taskId string, executorUuid string, status string, )  {
 	}
 }
 
+func getJobSummary(jobUuid string) (summary JobResult, err error) {
+	summary.JobUuid = jobUuid
+	rows, err := db.Query("select u.origin_url, u.status from url u " +
+		"join task t on u.task_id = t.id " +
+		"join job j on t.job_uuid = j.uuid " +
+		"where j.uuid = ?", jobUuid)
+	if err != nil {
+		logger.Println("Error querying job url status: ", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var url, status string
+		if err := rows.Scan(&url, &status); err != nil {
+			logger.Println("Row scan error: ", err)
+			continue
+		}
+		switch status {
+		case "Finished":
+			summary.SuccessUrls = append(summary.SuccessUrls, url)
+		case "Failed":
+			summary.FailedUrls = append(summary.FailedUrls, url)
+		case "Pending":
+			summary.PendingUrls = append(summary.PendingUrls, url)
+		}
+	}
+	return summary, nil
+}
+
 func tryFinishJob(taskId string)  {
 	var jobUuid string
 	err := db.QueryRow("select job_uuid from task where id = ?", taskId).Scan(&jobUuid)
@@ -209,9 +238,25 @@ func tryFinishJob(taskId string)  {
 		if err != nil {
 			logger.Println("Error updating job status: ", err)
 		}
-		// TODO: send callback if necessary
+		var callbackUrl, callbackToken sql.NullString
+		err := db.QueryRow("select callback_token, callback_url from job where " +
+			"uuid = ?", jobUuid).Scan(&callbackToken, &callbackUrl)
+		if err != nil {
+			logger.Println("Error querying callback info: ", err)
+			return
+		}
+		if !callbackUrl.Valid {return}
+		url := callbackUrl.String
+		if callbackToken.Valid {
+			url += "?" + callbackToken.String
+		}
+		summary, err := getJobSummary(jobUuid)
+		if err != nil {
+			logger.Println("Error getting job summary for job", jobUuid, "with error", err)
+			return
+		}
+		putJobCallback(url, &summary)
 	}
-	logger.Println(failed, finished, total)
 }
 
 func executorLostUpdate(executorUuid string)  {
@@ -258,4 +303,15 @@ func getSecretKey(accessKey string) (secretKey string, err error) {
 	err = db.QueryRow("select secret_key from user where " +
 		"access_key = ?", accessKey).Scan(&secretKey)
 	return
+}
+
+func userOwnsJob(accessKey string, jobUuid string) bool {
+	var count int
+	err := db.QueryRow("select count(*) from job where " +
+		"uuid = ? and access_key = ?", jobUuid, accessKey).Scan(&count)
+	if err != nil {
+		logger.Println("Error querying job: ", err)
+		return false
+	}
+	return count != 0
 }

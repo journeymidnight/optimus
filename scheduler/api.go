@@ -9,6 +9,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
+	"bytes"
 )
 
 var (
@@ -62,12 +63,13 @@ type TransferResponse struct {
 
 func putTransferJobHandler(w http.ResponseWriter, r *http.Request)  {
 	if strings.ToUpper(r.Method) != "PUT" {
-		response(w, http.StatusBadRequest, "Only PUT method is allowed")
+		w.Header().Set("Allow", "PUT")
+		response(w, http.StatusMethodNotAllowed, "Only PUT method is allowed")
 		return
 	}
 	accessKey, verified := verifyRequest(r)
 	if !verified {
-		response(w, http.StatusForbidden, "Failed to authenticate request")
+		response(w, http.StatusUnauthorized, "Failed to authenticate request")
 		return
 	}
 	var req TransferRequest
@@ -118,8 +120,64 @@ type JobResult struct {
 	PendingUrls []string `json:"queued-files"`
 }
 
+func putJobCallback(url string, summary *JobResult)  {
+	jsonSummary, err := json.Marshal(summary)
+	if err != nil {
+		logger.Println("Error marshalling json: ", err)
+		return
+	}
+	request, err := http.NewRequest("PUT", url, bytes.NewBuffer(jsonSummary))
+	if err != nil {
+		logger.Println("Error creating request: ", err)
+		return
+	}
+	request.Header.Set("Content-Type", "application/json")
+	client := &http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		logger.Println("Error sending PUT request: ", err)
+		return
+	}
+	logger.Println("Callback has been sent to ", url, "with response code ", response.Status)
+}
+
+func getJobStatusHandler(w http.ResponseWriter, r *http.Request)  {
+	if strings.ToUpper(r.Method) != "GET" {
+		w.Header().Set("Allow", "GET")
+		response(w, http.StatusMethodNotAllowed, "Only GET method is allowed")
+		return
+	}
+	accessKey, verified := verifyRequest(r)
+	if !verified {
+		response(w, http.StatusUnauthorized, "Failed to authenticate request")
+		return
+	}
+	jobUuid := r.URL.Query().Get("jobid")
+	if jobUuid == "" {
+		response(w, http.StatusBadRequest, "Missing parameter jobid")
+		return
+	}
+	if !userOwnsJob(accessKey, jobUuid) {
+		response(w, http.StatusForbidden, "Your key has no access to job " + jobUuid)
+		return
+	}
+	summary, err := getJobSummary(jobUuid)
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot get job status")
+		return
+	}
+	jsonSummary, err := json.Marshal(summary)
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot get job status")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	response(w, http.StatusOK, string(jsonSummary))
+}
+
 func startApiServer()  {
 	http.HandleFunc("/transferjob", putTransferJobHandler)
+	http.HandleFunc("/status", getJobStatusHandler)
 	http.Handle("/", http.FileServer(http.Dir("../web")))
 	logger.Println("Starting API server...")
 	err := http.ListenAndServe(API_BIND_ADDRESS, nil)

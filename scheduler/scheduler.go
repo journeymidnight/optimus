@@ -45,7 +45,7 @@ func buildUris() []*mesosproto.CommandInfo_URI {
 		Value: &EXECUTOR_URL,
 		Executable: proto.Bool(true),
 		Extract: proto.Bool(false),
-		//Cache: proto.Bool(true),
+		Cache: proto.Bool(true),
 		Cache: proto.Bool(false),
 	})
 	return uris
