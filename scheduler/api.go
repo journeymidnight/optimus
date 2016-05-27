@@ -22,10 +22,11 @@ func response(w http.ResponseWriter, statusCode int, message string)  {
 	w.Write([]byte(message))
 }
 
+// See api.markdown for details
 func verifyRequest(r *http.Request) (accessKey string, _ bool) {
 	dateString := r.Header.Get("x-date")
 	if dateString == "" {return "", false}
-	date, err := time.Parse("Mon, 02 Jan 2006 15:04:05 GMT", dateString)
+	date, err := time.Parse("Mon, 02 Jan 2006 15:04:05 MST", dateString)
 	if err != nil {return "", false}
 	now := time.Now()
 	diff := now.Sub(date)
