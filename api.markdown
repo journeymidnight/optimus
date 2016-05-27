@@ -60,7 +60,7 @@ optimus.lecloud.com\n
 - PUT /transferjob
 - PUT /transferjob?token=Token&callback=http://callback_url
 
-使用第二种格式时，任务结束时Optimus会向http://callback_url发送callback(详见下文`Callback请求`)；Token字段可以不填写
+使用第二种格式时，任务结束时Optimus会向http://callback_url 发送callback(详见下文`Callback请求`)；Token字段可以不填写
 
 Request body(使用JSON格式):
 
