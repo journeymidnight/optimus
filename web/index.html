@@ -25,7 +25,10 @@
         <input type="text" class="form-control" id="jobIdInput" placeholder="Job ID">
     </div>
     <div class="col-md-1">
-        <button class="btn btn-default" id="showJob"><span class="glyphicon glyphicon-search"></span></button>
+        <button class="btn btn-default" id="showJob">
+            <span class="glyphicon glyphicon-refresh hide spinning" id="searchBusy"></span>
+            <span class="glyphicon glyphicon-search" id="searchIdle"></span>
+        </button>
     </div>
 </div>
 
@@ -35,25 +38,13 @@
 <script type="text/javascript" src="js/enc-base64-min.js"></script>
 <script type="text/javascript" src="js/optimus.js"></script>
 
-<div class="container-fluid hide">
-    <table class="table table-striped">
+<div class="container-fluid">
+    <table class="table table-striped hide" id="resultTable">
         <thead>
             <th>Origin URL</th>
             <th>Status</th>
         </thead>
         <tbody>
-            <tr>
-                <td>http://1234.com</td>
-                <td>Pending</td>
-            </tr>
-            <tr>
-                <td>http://1234.com</td>
-                <td>Pending</td>
-            </tr>
-            <tr>
-                <td>http://1234.com</td>
-                <td>Pending</td>
-            </tr>
         </tbody>
     </table>
 </div>

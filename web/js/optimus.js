@@ -21,19 +21,74 @@ function alert(type, strongMessage, message) {
     $('#message').append(div);
 }
 
+function busy() {
+    $('#searchBusy').removeClass('hide');
+    $('#searchIdle').addClass('hide');
+}
+
+function idle() {
+    $('#searchBusy').addClass('hide');
+    $('#searchIdle').removeClass('hide');
+}
+
 function checkKeyExistence() {
     if (!window.localStorage.getItem('accessKey') ||
         !window.localStorage.getItem('secretKey')) {
         alert('info', '', 'Please configure your keys first');
-        showConfigureModal();
+        setTimeout(showConfigureModal, 300);
         return false;
     }
     return true;
 }
 
+function ajaxErrorHandler(data) {
+    alert('danger', 'Error:', data.responseText);
+    idle();
+}
+
+function updateTable(data) {
+    var tr = '<tr>' + '<td>URL</td>' + '<td>STATUS</td>' + '</tr>';
+    var table = [];
+    if(data['success-files']) {
+        data['success-files'].forEach(function(url) {
+            table.push(tr.replace(/URL/g, url).replace(/STATUS/g, 'Finished'));
+        })
+    }
+    if(data['queued-files']) {
+        data['queued-files'].forEach(function(url) {
+            table.push(tr.replace(/URL/g, url).replace(/STATUS/g, 'Pending'));
+        })
+    }
+    if(data['failed-files']) {
+        data['failed-files'].forEach(function(url) {
+            table.push(tr.replace(/URL/g, url).replace(/STATUS/g, 'Failed'));
+        })
+    }
+    $('#resultTable > tbody').html(table);
+}
+
 function queryJob() {
+    $('#showJob').blur();
     if(!checkKeyExistence()) return;
+
+    var jobId = $('#jobIdInput').val().trim();
+    if(jobId === '') {
+        alert('danger', '', 'No job ID specified');
+        return;
+    }
+    busy();
     var authHeader = getAuthHeader('GET', '/status');
+    $.ajax({
+        url: '/status?jobid=' + jobId,
+        type: 'GET',
+        headers: authHeader,
+        success: function(data) {
+            updateTable(data);
+            $('#resultTable').removeClass('hide');
+            idle();
+        },
+        error: ajaxErrorHandler
+    })
 }
 
 function verifyUrls(urls) {
@@ -92,9 +147,7 @@ function submitJob() {
         success: function(data) {
             alert('success', 'Job ID:', data.jobid);
         },
-        error: function(data) {
-            alert('danger', 'Error:', data.responseText);
-        }
+        error: ajaxErrorHandler
     });
     $('#newJobModal').modal('hide');
 }
