@@ -36,10 +36,13 @@ console.log(new Date().toUTCString())
 格式为`AK:base64(hmac(signatureStr, SK))`，hmac目前采用的hash算法是`SHA-1`
 
 其中，`signatureStr`是需要签名的内容，格式为：
-	HTTP_Method + '\n'
-	Date + '\n'
-	URL_Host + '\n'
-	URL_Path
+
+```
+HTTP_Method + '\n'
+Date + '\n'
+URL_Host + '\n'
+URL_Path
+```
 
 例如一个提交任务请求(PUT /transferjob，假设服务器地址为optimus.lecloud.com)，需要签名的内容为：
 
@@ -50,9 +53,9 @@ optimus.lecloud.com\n
 /transferjob
 ```
 
-注意: URL标准格式为```scheme://[userinfo@]host/path[?query][#fragment]```
+注: URL标准格式为```scheme://[userinfo@]host/path[?query][#fragment]```
 
-##提交任务
+## 提交任务
 
 - PUT /transferjob
 - PUT /transferjob?token=Token&callback=http://callback_url
@@ -65,10 +68,10 @@ Request body(使用JSON格式):
 
   ```json
   {
-      "origin-files": [
-  	"http://abc",
-  	"http://def",
-  	"http://bad"
+    "origin-files": [
+        "http://abc",
+        "http://def",
+        "http://bad"
       ],
       "target-type": "s3s",
       "target-bucket": "bucketone",
@@ -82,8 +85,8 @@ Request body(使用JSON格式):
   ```json
   {
       "origin-files": [
-  	"http://abc",
-  	"http://def",
+          "http://abc",
+          "http://def",
       ],
       "target-type": "Vaas",
   }
@@ -96,7 +99,7 @@ Response body(JSON格式):
 ```json
 {"jobid":Job_ID}
 ```
-###Callback请求
+### Callback请求
 
 - PUT http://callback_url?Token
 
@@ -116,7 +119,7 @@ Request Body(JSON格式):
 ```
 
 
-##查询任务状态
+## 查询任务状态
 
 - GET /status?jobid=Job_ID
 
@@ -137,4 +140,3 @@ Response body(JSON格式):
     ]
 }
 ```
-
