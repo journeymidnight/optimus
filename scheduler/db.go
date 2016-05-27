@@ -245,9 +245,9 @@ func tryFinishJob(taskId string)  {
 			logger.Println("Error querying callback info: ", err)
 			return
 		}
-		if !callbackUrl.Valid {return}
+		if !callbackUrl.Valid || callbackUrl.String == "" {return}
 		url := callbackUrl.String
-		if callbackToken.Valid {
+		if callbackToken.Valid && callbackToken.String != "" {
 			url += "?" + callbackToken.String
 		}
 		summary, err := getJobSummary(jobUuid)

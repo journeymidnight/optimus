@@ -163,6 +163,12 @@ function saveKeys() {
 function init() {
     $('#newJob').click(showJobModal);
     $('#configureKeys').click(showConfigureModal);
+    $('#jobIdInput').keypress(function(event) {
+        var keycode = (event.keyCode ? event.keyCode : event.which);
+        if(keycode == '13') { // Enter key
+            queryJob();
+        }
+    });
     $('#showJob').click(queryJob);
     $('#jobSubmit').click(submitJob);
     $('#saveKeys').click(saveKeys);
