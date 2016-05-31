@@ -21,8 +21,6 @@ import (
 
 var (
 	MAX_RETRY_TIMES = 3
-	ACCESS_KEY = "9EEIWGS705M4ZJ3N7FEM"
-	SECRET_KEY = "8humW3nOraybmbIjY6s15IVned87gz/nUrgxYlEX"
 	S3_ENDPOINT = "http://s3.lecloud.com"
 	CHUNK_SIZE = 5 << 20 // 5 MB
 
@@ -38,25 +36,27 @@ type FileTask struct  {
 	targetAcl string
 	status string // in Finished/Failed
 	retriedTimes int
+	accessKey string
+	secretKey string
 }
 
-func s3Upload(file io.Reader, filename string, bucket string, acl string) (targetUrl string, err error) {
-	d := s3.NewDriver(ACCESS_KEY, SECRET_KEY, S3_ENDPOINT, bucket)
-	uploader, err := d.NewSimpleMultiPartWriter(filename, CHUNK_SIZE, acl)
+func s3Upload(file io.Reader, task *FileTask) (targetUrl string, err error) {
+	d := s3.NewDriver(task.accessKey, task.secretKey, S3_ENDPOINT, task.targetBucket)
+	uploader, err := d.NewSimpleMultiPartWriter(task.name, CHUNK_SIZE, task.targetAcl)
 	if err != nil {return }
 	defer uploader.Close()
 
 	n, err := io.Copy(uploader, file)
 	if err != nil {return }
-	fmt.Println("File", filename, "uploaded with", n, "bytes")
-	targetUrl = S3_ENDPOINT + "/" + bucket + "/" + filename
+	fmt.Println("File", task.name, "uploaded with", n, "bytes")
+	targetUrl = S3_ENDPOINT + "/" + task.targetBucket + task.name // task.name has a prefix "/"
 	return
 }
 
 func transfer(task *FileTask) {
 	var err error
-	filename := strings.Replace(strings.Replace(task.originUrl, "/", "_", -1),
-		":", "_", -1)  // escape "/" and ":" in url so it could be used as filename
+	filename := strings.Replace(strings.Replace(task.originUrl, "/", "", -1),
+		":", "", -1)  // escape "/" and ":" in url so it could be used as filename
 	file, err := os.Create(filename)
 	if err != nil {
 		fmt.Println("Error creating file: ", task.name)
@@ -64,11 +64,19 @@ func transfer(task *FileTask) {
 		results <- task
 		return
 	}
+	defer os.Remove(filename)
 	defer file.Close()
 
+	// TODO: multi-thread downloading
 	response, err := http.Get(task.originUrl)
 	if err != nil {
-		fmt.Println("Error downloading file: ", task.name)
+		fmt.Println("Error downloading file: ", task.name, "with error", err)
+		task.status = "Failed"
+		results <- task
+		return
+	}
+	if response.StatusCode < 200 || response.StatusCode > 299 {
+		fmt.Println("Error downloading file: ", task.name, "with status", response.Status)
 		task.status = "Failed"
 		results <- task
 		return
@@ -87,7 +95,7 @@ func transfer(task *FileTask) {
 	var targetUrl string
 	switch task.targetType {
 	case "s3s":
-		targetUrl, err = s3Upload(file, task.name, task.targetBucket, task.targetAcl)
+		targetUrl, err = s3Upload(file, task)
 	case "Vaas":
 		fmt.Println("Vaas upload has not been implemented")
 		task.status = "Failed"
@@ -186,27 +194,27 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 			updateTaskStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_ERROR)
 			return
 		}
-		segments := strings.Split(urlParsed.Path, "/")
-		fileName := segments[len(segments) - 1]
 		t := &FileTask{
-			name: fileName,
+			name: urlParsed.Path,
 			originUrl: sourceUrl,
 			targetType: task.TargetType,
 			targetBucket: task.TargetBucket,
 			targetAcl: task.TargetAcl,
 			retriedTimes: 0,
+			accessKey: task.AccessKey,
+			secretKey: task.SecretKey,
 		}
 		go transfer(t)
 	}
 	finished := 0
-	FOR:
-	for {
+	failed := 0
+	FOR: for {
 		result := <- results
 		switch result.status {
 		case "Finished":
 			finished++
 			updateFileStatus(driver, taskInfo.TaskId.GetValue(), result)
-			if finished == len(task.OriginUrls) {
+			if finished + failed == len(task.OriginUrls) {
 				break FOR
 			}
 		case "Failed":
@@ -214,17 +222,24 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 				result.retriedTimes++
 				go transfer(result)
 			} else {
+				failed++
 				fmt.Println("URL failed for ", result.originUrl, "after retries")
-				updateTaskStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FAILED)
-				return
+				updateFileStatus(driver, taskInfo.TaskId.GetValue(), result)
+			}
+			if finished + failed == len(task.OriginUrls) {
+				break FOR
 			}
 		default:
 			fmt.Println("Should NEVER hit here")
 		}
 	}
-
-	updateTaskStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FINISHED)
-	fmt.Println("Task finished", taskInfo.GetName())
+	if failed == 0 {
+		updateTaskStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FINISHED)
+		fmt.Println("Task finished", taskInfo.GetName())
+	} else {
+		updateTaskStatus(driver, taskInfo.GetTaskId(), mesos.TaskState_TASK_FAILED)
+		fmt.Println("Task (maybe partially) failed", taskInfo.GetName())
+	}
 }
 
 func (exec *megatronExecutor) KillTask(driver exec.ExecutorDriver, taskId *mesos.TaskID) {

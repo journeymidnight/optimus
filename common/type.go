@@ -8,6 +8,9 @@ type TransferTask struct  {
 	TargetBucket string `json:"targetBucket"`
 	TargetAcl string `json:"targetAcl"`
 	Status string `json:"status"`// status is in Pending/Scheduled/Failed/Finished
+	// keys for specific service, like S3 or Vass
+	AccessKey string `json:"accessKey"`
+	SecretKey string `json:"secretKey"`
 }
 
 type UrlUpdate struct {

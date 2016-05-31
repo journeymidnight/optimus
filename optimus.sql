@@ -9,6 +9,10 @@ CREATE TABLE user (
   id BIGINT NOT NULL AUTO_INCREMENT,
   access_key VARCHAR(50) NOT NULL UNIQUE,
   secret_key VARCHAR(50) NOT NULL,
+  s3_ak VARCHAR(50) DEFAULT NULL,
+  s3_sk VARCHAR(50) DEFAULT NULL,
+  vass_ak VARCHAR(50) DEFAULT NULL,
+  vass_sk VARCHAR(50) DEFAULT NULL,
   description VARCHAR(50) DEFAULT NULL,
   PRIMARY KEY (id),
   INDEX (access_key)
@@ -61,6 +65,8 @@ CREATE TABLE task (
   target_bucket VARCHAR(100),
   target_acl VARCHAR(20),
   status VARCHAR(20) NOT NULL,
+  access_key VARCHAR(50),
+  secret_key VARCHAR(50),
   PRIMARY KEY (id),
   INDEX (job_uuid),
   INDEX (executor_uuid),
@@ -84,5 +90,5 @@ CREATE TABLE url (
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- For tests
-INSERT INTO user (access_key, secret_key)
-    VALUES ("hehe", "haha");
+INSERT INTO user (access_key, secret_key, s3_ak, s3_sk)
+    VALUES ("hehe", "haha", "9EEIWGS705M4ZJ3N7FEM", "8humW3nOraybmbIjY6s15IVned87gz/nUrgxYlEX");

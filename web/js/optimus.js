@@ -138,12 +138,13 @@ function submitJob() {
             };
             break;
     }
-    var authHeader = getAuthHeader('PUT', '/transferjob');
+    var dataString = JSON.stringify(data);
+    var authHeader = getAuthHeader('PUT', '/transferjob', dataString);
     $.ajax({
         url: '/transferjob',
         type: 'PUT',
         headers: authHeader,
-        data: JSON.stringify(data),
+        data: dataString,
         success: function(data) {
             alert('success', 'Job ID:', data.jobid);
         },
@@ -190,11 +191,11 @@ function init() {
     })
 }
 
-function getAuthHeader(method, urlPath) {
+function getAuthHeader(method, urlPath, dataString) {
     var accessKey = window.localStorage.getItem('accessKey') || "";
     var secretKey = window.localStorage.getItem("secretKey") || "";
     var now = new Date().toUTCString();
-    var message = method + '\n' + now + '\n' + location.host + '\n' + urlPath;
+    var message = method + '\n' + now + '\n' + CryptoJS.MD5(dataString).toString() + '\n' + urlPath;
     var hmac = CryptoJS.HmacSHA1(message, secretKey);
     var base64 = CryptoJS.enc.Base64.stringify(hmac);
     return {

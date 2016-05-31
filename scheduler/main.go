@@ -40,6 +40,7 @@ func requestHandler()  {
 			logger.Println("Error inserting request: ", request, "with error: ", err)
 			continue
 		}
+		accessKey, secretKey := getKeysForUser(request.accessKey, request.TargetType)
 		tasks := []*common.TransferTask{}
 		cursor := 0
 		length := len(request.OriginUrls)
@@ -50,6 +51,8 @@ func requestHandler()  {
 				TargetBucket: request.TargetBucket,
 				TargetAcl: request.TargetAcl,
 				Status: "Pending",
+				AccessKey: accessKey,
+				SecretKey: secretKey,
 			}
 			if length > cursor + FILES_PER_TASK {
 				t.OriginUrls = request.OriginUrls[cursor:cursor+FILES_PER_TASK]

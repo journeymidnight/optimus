@@ -40,20 +40,22 @@ console.log(new Date().toUTCString())
 ```
 HTTP_Method + '\n'
 Date + '\n'
-URL_Host + '\n'
+MD5(Body) + '\n'
 URL_Path
 ```
 
-例如一个提交任务请求(PUT /transferjob，假设服务器地址为optimus.lecloud.com)，需要签名的内容为：
+例如一个提交任务请求(PUT /transferjob，Body内容为`{"origin-files":["http://le.com/index.html"],"target-type":"s3s","target-bucket":"test","target-acl":"public-read"}`)，需要签名的内容为：
 
 ```
 PUT\n
 Tue, 24 May 2016 06:48:20 GMT\n
-optimus.lecloud.com\n
+5ae77f1aa383e86199e026ddad98448a\n
 /transferjob
 ```
 
-注: URL标准格式为```scheme://[userinfo@]host/path[?query][#fragment]```
+注1: URL标准格式为```scheme://[userinfo@]host/path[?query][#fragment]```
+
+注2: GET请求的Request Body认为是空字符串("")
 
 ## 提交任务
 
@@ -127,7 +129,7 @@ Response body(JSON格式):
 
 ```json
 {
-    "jobid": JOB_ID,
+    "jobid": Job_ID,
     "success-files":[
 	    "http://abc",
 	    "http://def",
@@ -135,7 +137,7 @@ Response body(JSON格式):
     "failed-files":[
 	    "http://bad"
     ],
-    "queued-files"[
+    "queued-files":[
 	    "http://queue.file"
     ]
 }

@@ -30,9 +30,10 @@ func insertTasks(tasks []*common.TransferTask) error {
 	for _, task := range tasks {
 		tx, err := db.Begin()
 		if err != nil {return err}
-		result, err := tx.Exec("insert into task(id, job_uuid, target_type, target_bucket, target_acl, status) " +
-			"values(?, ?, ?, ?, ?, ?)",
-			0, task.JobUuid, task.TargetType, task.TargetBucket, task.TargetAcl, task.Status)
+		result, err := tx.Exec(
+			"insert into task(id, job_uuid, target_type, target_bucket, target_acl, status, access_key, secret_key) " +
+			"values(?, ?, ?, ?, ?, ?, ?, ?)",
+			0, task.JobUuid, task.TargetType, task.TargetBucket, task.TargetAcl, task.Status, task.AccessKey, task.SecretKey)
 		if err != nil {
 			tx.Rollback()
 			return err
@@ -87,7 +88,8 @@ func getIdleExecutorsOnSlave(tx *sql.Tx, slaveUuid string) (executors []*Executo
 }
 
 func getPendingTasks(tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
-	taskRows, err := tx.Query("select id, job_uuid, target_type, target_bucket, target_acl from task " +
+	taskRows, err := tx.Query(
+		"select id, job_uuid, target_type, target_bucket, target_acl, access_key, secret_key from task " +
 		"where status = ? limit ? for update", "Pending", limit)
 	if err != nil {
 		logger.Println("Error querying pending tasks: ", err)
@@ -97,7 +99,7 @@ func getPendingTasks(tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
 	for taskRows.Next() {
 		var task common.TransferTask
 		if err := taskRows.Scan(&task.Id, &task.JobUuid, &task.TargetType, &task.TargetBucket,
-			&task.TargetAcl); err != nil {
+			&task.TargetAcl, &task.AccessKey, &task.SecretKey); err != nil {
 			logger.Println("Row scan error: ", err)
 			continue
 		}
@@ -303,6 +305,26 @@ func getSecretKey(accessKey string) (secretKey string, err error) {
 	err = db.QueryRow("select secret_key from user where " +
 		"access_key = ?", accessKey).Scan(&secretKey)
 	return
+}
+
+func getKeysForUser(userAccessKey string, requestType string) (string, string) {
+	var accessKeyColumnName, secretKeyColumnName string
+	switch requestType {
+	case "s3s":
+		accessKeyColumnName = "s3_ak"
+		secretKeyColumnName = "s3_sk"
+	case "Vaas":
+		accessKeyColumnName = "vaas_ak"
+		secretKeyColumnName = "vaas_sk"
+	}
+	var ak, sk sql.NullString
+	err := db.QueryRow("select " + accessKeyColumnName + "," + secretKeyColumnName +
+		" from user where access_key = ?", userAccessKey).Scan(&ak, &sk)
+	if err != nil {
+		logger.Println("Error querying AK/SK for user", userAccessKey)
+		return "", ""
+	}
+	return ak.String, sk.String
 }
 
 func userOwnsJob(accessKey string, jobUuid string) bool {

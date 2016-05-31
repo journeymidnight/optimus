@@ -10,6 +10,9 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	"bytes"
+	"io/ioutil"
+	"crypto/md5"
+	"encoding/hex"
 )
 
 var (
@@ -23,7 +26,7 @@ func response(w http.ResponseWriter, statusCode int, message string)  {
 }
 
 // See api.markdown for details
-func verifyRequest(r *http.Request) (accessKey string, _ bool) {
+func verifyRequest(r *http.Request, requestBody []byte) (accessKey string, _ bool) {
 	dateString := r.Header.Get("x-date")
 	if dateString == "" {return "", false}
 	date, err := time.Parse("Mon, 02 Jan 2006 15:04:05 MST", dateString)
@@ -42,8 +45,12 @@ func verifyRequest(r *http.Request) (accessKey string, _ bool) {
 	if err != nil {return "", false}
 	secretKey, err := getSecretKey(accessKey)
 	if err != nil {return "", false}
+	if err != nil {return "", false}
+	hasher := md5.New()
+	hasher.Write(requestBody)
+	bodyMd5 := hex.EncodeToString(hasher.Sum(nil))
 	mac := hmac.New(sha1.New, []byte(secretKey))
-	mac.Write([]byte(r.Method + "\n" + dateString + "\n" + r.Host + "\n" + r.URL.Path))
+	mac.Write([]byte(r.Method + "\n" + dateString + "\n" + bodyMd5 + "\n" + r.URL.Path))
 	expectedMac := mac.Sum(nil)
 	return accessKey, hmac.Equal(expectedMac, messageMac)
 }
@@ -69,14 +76,19 @@ func putTransferJobHandler(w http.ResponseWriter, r *http.Request)  {
 		response(w, http.StatusMethodNotAllowed, "Only PUT method is allowed")
 		return
 	}
-	accessKey, verified := verifyRequest(r)
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	accessKey, verified := verifyRequest(r, requestBody)
 	if !verified {
 		response(w, http.StatusUnauthorized, "Failed to authenticate request")
 		return
 	}
 	var req TransferRequest
 	req.accessKey = accessKey
-	err := json.NewDecoder(r.Body).Decode(&req)
+	err = json.NewDecoder(bytes.NewReader(requestBody)).Decode(&req)
 	if err != nil {
 		response(w, http.StatusBadRequest, "Bad JSON body")
 		return
@@ -149,7 +161,12 @@ func getJobStatusHandler(w http.ResponseWriter, r *http.Request)  {
 		response(w, http.StatusMethodNotAllowed, "Only GET method is allowed")
 		return
 	}
-	accessKey, verified := verifyRequest(r)
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	accessKey, verified := verifyRequest(r, requestBody)
 	if !verified {
 		response(w, http.StatusUnauthorized, "Failed to authenticate request")
 		return
