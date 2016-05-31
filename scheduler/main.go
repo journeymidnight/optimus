@@ -11,28 +11,32 @@ import (
 
 	"git.letv.cn/zhangcan/optimus/common"
 	"time"
+	"encoding/json"
 )
 
 var (
-	// TODO: replace global variables with config parameters
-	MASTER = "127.0.0.1:5050"
-	EXECUTOR_URL = "http://127.0.0.1:8000/main"
-	EXECUTE_CMD = "./main"
-	API_BIND_ADDRESS = "0.0.0.0:8080"
-	DB_CONNECTION_STRING = "root@tcp(127.0.0.1:3306)/optimus"
-	REQUEST_BUFFER = 10000
-	FILES_PER_TASK = 10
-	EXECUTOR_IDLE_THRESHOLD = 3 // if an executor has taskRunning < THRESHOLD, treat it as idle
-	TASK_SCHEDULE_TIMEOUT = 1 * time.Minute // if a task has been scheduled for certain time and not
-					// become "Running", consider it as lost and reschedule it
-	CPU_PER_EXECUTOR = .5
-	MEM_PER_TASK = 500.
-	DISK_PER_TASK = 1024.
-
+	CONFIG Config
 	logger *log.Logger
 	db *sql.DB
 	requestBuffer chan TransferRequest
 )
+
+type Config struct {
+	LogDirectory string
+	MesosMaster string
+	ExecutorUrl string
+	ExecuteCommand string
+	ApiBindAddress string
+	DatabaseConnectionString string
+	RequestBufferSize int
+	FilesPerTask int
+	ExecutorIdleThreshold int // if an executor has taskRunning < THRESHOLD, treat it as idle
+	TaskScheduleTimeout time.Duration // if a task has been scheduled for certain time and not
+					// become "Running", consider it as lost and reschedule it
+	CpuPerExecutor float64
+	MemoryPerTask float64
+	DiskPerTask float64
+}
 
 
 func requestHandler()  {
@@ -57,10 +61,10 @@ func requestHandler()  {
 				AccessKey: accessKey,
 				SecretKey: secretKey,
 			}
-			if length > cursor + FILES_PER_TASK {
-				t.OriginUrls = request.OriginUrls[cursor:cursor+FILES_PER_TASK]
+			if length > cursor + CONFIG.FilesPerTask {
+				t.OriginUrls = request.OriginUrls[cursor:cursor+CONFIG.FilesPerTask]
 				tasks = append(tasks, &t)
-				cursor += FILES_PER_TASK
+				cursor += CONFIG.FilesPerTask
 			} else {
 				t.OriginUrls = request.OriginUrls[cursor:length]
 				tasks = append(tasks, &t)
@@ -86,13 +90,13 @@ func rescheduler()  {
 		now := time.Now()
 		tasksToReschedule := []*scheduledTask{}
 		for _, task := range scheduledTasks {
-			if diff := now.Sub(task.scheduleTime); diff > TASK_SCHEDULE_TIMEOUT {
+			if diff := now.Sub(task.scheduleTime); diff > CONFIG.TaskScheduleTimeout {
 				tasksToReschedule = append(tasksToReschedule, task)
 			}
 		}
 		rescheduleTasks(tasksToReschedule)
 
-		time.Sleep(TASK_SCHEDULE_TIMEOUT)
+		time.Sleep(CONFIG.TaskScheduleTimeout)
 	}
 }
 
@@ -101,14 +105,29 @@ func init()  {
 }
 
 func main()  {
-	// TODO: log to a file
-	logger = log.New(os.Stdout, "Optimus Prime: ", log.LstdFlags|log.Lshortfile)
+	configFile, err := os.Open("/etc/optimus.json")
+	if err != nil {
+		panic(err.Error())
+	}
+	defer configFile.Close()
+	jsonDecoder := json.NewDecoder(configFile)
+	err = jsonDecoder.Decode(&CONFIG)
+	if err != nil {
+		panic("Error parsing config file /etc/optimus.json with error: " + err.Error())
+	}
+
+	logFile, err := os.OpenFile(CONFIG.LogDirectory + "/optimus.log",
+		os.O_APPEND|os.O_RDWR|os.O_CREATE, 0664)
+	if err != nil {
+		panic(err.Error())
+	}
+	logger = log.New(logFile, "Optimus: ", log.LstdFlags|log.Lshortfile)
 
 	db = createDbConnection()
 	defer db.Close()
 	clearExecutors()
 
-	requestBuffer = make(chan TransferRequest, REQUEST_BUFFER)
+	requestBuffer = make(chan TransferRequest, CONFIG.RequestBufferSize)
 	go requestHandler()
 
 	go startApiServer()
@@ -123,7 +142,7 @@ func main()  {
 	config := scheduler.DriverConfig{
 		Scheduler: newScheduler(),
 		Framework: frameworkInfo,
-		Master: MASTER,
+		Master: CONFIG.MesosMaster,
 	}
 	driver, err := scheduler.NewMesosSchedulerDriver(config)
 	if err != nil {

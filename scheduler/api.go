@@ -199,7 +199,7 @@ func startApiServer()  {
 	http.HandleFunc("/status", getJobStatusHandler)
 	http.Handle("/", http.FileServer(http.Dir(WEB_ROOT)))
 	logger.Println("Starting API server...")
-	err := http.ListenAndServe(API_BIND_ADDRESS, nil)
+	err := http.ListenAndServe(CONFIG.ApiBindAddress, nil)
 	if err != nil {
 		panic(fmt.Sprintf("Error starting API server: %v", err))
 	}

@@ -42,11 +42,10 @@ func (scheduler *Scheduler) Disconnected(driver scheduler.SchedulerDriver)  {
 func buildUris() []*mesosproto.CommandInfo_URI {
 	var uris []*mesosproto.CommandInfo_URI
 	uris = append(uris, &mesosproto.CommandInfo_URI{
-		Value: &EXECUTOR_URL,
+		Value: &CONFIG.ExecutorUrl,
 		Executable: proto.Bool(true),
 		Extract: proto.Bool(false),
 		Cache: proto.Bool(true),
-		Cache: proto.Bool(false),
 	})
 	return uris
 }
@@ -65,8 +64,8 @@ type Executor struct {
 
 // calculate how many executors and tasks could be launched for certain resources
 func calculateCapacity(cpu float64, memory float64, disk float64) (executor int, task int) {
-	executor = int(cpu / CPU_PER_EXECUTOR)
-	task = int(math.Min(memory / MEM_PER_TASK, disk / DISK_PER_TASK))
+	executor = int(cpu / CONFIG.CpuPerExecutor)
+	task = int(math.Min(memory / CONFIG.MemoryPerTask, disk / CONFIG.DiskPerTask))
 	return
 }
 
@@ -80,11 +79,11 @@ slaveId *mesosproto.SlaveID) (mesosTask *mesosproto.TaskInfo) {
 			Value: proto.String(executorId),
 		},
 		Command: &mesosproto.CommandInfo{
-			Value: proto.String(EXECUTE_CMD),
+			Value: proto.String(CONFIG.ExecuteCommand),
 			Uris: buildUris(),
 		},
 		Resources: []*mesosproto.Resource{
-			mesosutil.NewScalarResource("cpus", CPU_PER_EXECUTOR),
+			mesosutil.NewScalarResource("cpus", CONFIG.CpuPerExecutor),
 		},
 	}
 	jsonData, err := json.Marshal(task)
@@ -97,8 +96,8 @@ slaveId *mesosproto.SlaveID) (mesosTask *mesosproto.TaskInfo) {
 		SlaveId: slaveId,
 		Executor: executor,
 		Resources: []*mesosproto.Resource{
-			mesosutil.NewScalarResource("mem", MEM_PER_TASK),
-			mesosutil.NewScalarResource("disk", DISK_PER_TASK),
+			mesosutil.NewScalarResource("mem", CONFIG.MemoryPerTask),
+			mesosutil.NewScalarResource("disk", CONFIG.DiskPerTask),
 		},
 		Data: jsonData,
 	}

@@ -12,7 +12,7 @@ import (
 )
 
 func createDbConnection() *sql.DB {
-	conn, err := sql.Open("mysql", DB_CONNECTION_STRING)
+	conn, err := sql.Open("mysql", CONFIG.DatabaseConnectionString)
 	if err != nil {
 		panic(fmt.Sprintf("Error connecting to database: %v", err))
 	}
@@ -68,7 +68,7 @@ func upsertSlave(slave *Slave) error {
 func getIdleExecutorsOnSlave(tx *sql.Tx, slaveUuid string) (executors []*Executor) {
 	rows, err := tx.Query("select uuid, task_running from executor where " +
 		"slave_uuid = ? and task_running < ? and status != ? for update",
-		slaveUuid, EXECUTOR_IDLE_THRESHOLD, "Lost")
+		slaveUuid, CONFIG.ExecutorIdleThreshold, "Lost")
 	if err != nil {
 		logger.Println("Error querying idle executors: ", err)
 		return
