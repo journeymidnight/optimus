@@ -7,47 +7,50 @@ import (
 	exec "github.com/mesos/mesos-go/executor"
 	mesos "github.com/mesos/mesos-go/mesosproto"
 
+	"encoding/json"
 	"git.letv.cn/zhangcan/optimus/common"
 	"git.letv.cn/zhangcan/optimus/executor/s3"
-	"encoding/json"
-	"net/url"
-	"strings"
-	"os"
-	"net/http"
 	"io"
+	"net/http"
+	"net/url"
+	"os"
 	"strconv"
+	"strings"
 )
-
 
 var (
 	MAX_RETRY_TIMES = 3
-	S3_ENDPOINT = "http://s3.lecloud.com"
-	CHUNK_SIZE = 5 << 20 // 5 MB
+	S3_ENDPOINT     = "http://s3.lecloud.com"
+	CHUNK_SIZE      = 5 << 20 // 5 MB
 
 	results = make(chan *FileTask)
 )
 
-type FileTask struct  {
-	name string
-	originUrl string
-	targetUrl string
-	targetType string
+type FileTask struct {
+	name         string
+	originUrl    string
+	targetUrl    string
+	targetType   string
 	targetBucket string
-	targetAcl string
-	status string // in Finished/Failed
+	targetAcl    string
+	status       string // in Finished/Failed
 	retriedTimes int
-	accessKey string
-	secretKey string
+	accessKey    string
+	secretKey    string
 }
 
 func s3Upload(file io.Reader, task *FileTask) (targetUrl string, err error) {
 	d := s3.NewDriver(task.accessKey, task.secretKey, S3_ENDPOINT, task.targetBucket)
 	uploader, err := d.NewSimpleMultiPartWriter(task.name, CHUNK_SIZE, task.targetAcl)
-	if err != nil {return }
+	if err != nil {
+		return
+	}
 	defer uploader.Close()
 
 	n, err := io.Copy(uploader, file)
-	if err != nil {return }
+	if err != nil {
+		return
+	}
 	fmt.Println("File", task.name, "uploaded with", n, "bytes")
 	targetUrl = S3_ENDPOINT + "/" + task.targetBucket + task.name // task.name has a prefix "/"
 	return
@@ -56,7 +59,7 @@ func s3Upload(file io.Reader, task *FileTask) (targetUrl string, err error) {
 func transfer(task *FileTask) {
 	var err error
 	filename := strings.Replace(strings.Replace(task.originUrl, "/", "", -1),
-		":", "", -1)  // escape "/" and ":" in url so it could be used as filename
+		":", "", -1) // escape "/" and ":" in url so it could be used as filename
 	file, err := os.Create(filename)
 	if err != nil {
 		fmt.Println("Error creating file: ", task.name)
@@ -128,7 +131,7 @@ func newExampleExecutor() *megatronExecutor {
 }
 
 func (exec *megatronExecutor) Registered(driver exec.ExecutorDriver,
-execInfo *mesos.ExecutorInfo, fwinfo *mesos.FrameworkInfo, slaveInfo *mesos.SlaveInfo) {
+	execInfo *mesos.ExecutorInfo, fwinfo *mesos.FrameworkInfo, slaveInfo *mesos.SlaveInfo) {
 	fmt.Println("Registered Executor on slave ", slaveInfo.GetHostname())
 }
 
@@ -140,7 +143,7 @@ func (exec *megatronExecutor) Disconnected(exec.ExecutorDriver) {
 	fmt.Println("Executor disconnected.")
 }
 
-func updateTaskStatus(driver exec.ExecutorDriver, taskId *mesos.TaskID, status mesos.TaskState)  {
+func updateTaskStatus(driver exec.ExecutorDriver, taskId *mesos.TaskID, status mesos.TaskState) {
 	runStatus := &mesos.TaskStatus{
 		TaskId: taskId,
 		State:  status.Enum(),
@@ -151,7 +154,7 @@ func updateTaskStatus(driver exec.ExecutorDriver, taskId *mesos.TaskID, status m
 	}
 }
 
-func updateFileStatus(driver exec.ExecutorDriver, taskId string, fileTask *FileTask)  {
+func updateFileStatus(driver exec.ExecutorDriver, taskId string, fileTask *FileTask) {
 	id, err := strconv.ParseInt(taskId, 10, 64)
 	if err != nil {
 		fmt.Println("Error converting taskId to int64: ", err)
@@ -160,8 +163,8 @@ func updateFileStatus(driver exec.ExecutorDriver, taskId string, fileTask *FileT
 	update := common.UrlUpdate{
 		OriginUrl: fileTask.originUrl,
 		TargetUrl: fileTask.targetUrl,
-		TaskId: id,
-		Status: fileTask.status,
+		TaskId:    id,
+		Status:    fileTask.status,
 	}
 	jsonUpdate, err := json.Marshal(update)
 	if err != nil {
@@ -195,26 +198,27 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 			return
 		}
 		t := &FileTask{
-			name: urlParsed.Path,
-			originUrl: sourceUrl,
-			targetType: task.TargetType,
+			name:         urlParsed.Path,
+			originUrl:    sourceUrl,
+			targetType:   task.TargetType,
 			targetBucket: task.TargetBucket,
-			targetAcl: task.TargetAcl,
+			targetAcl:    task.TargetAcl,
 			retriedTimes: 0,
-			accessKey: task.AccessKey,
-			secretKey: task.SecretKey,
+			accessKey:    task.AccessKey,
+			secretKey:    task.SecretKey,
 		}
 		go transfer(t)
 	}
 	finished := 0
 	failed := 0
-	FOR: for {
-		result := <- results
+FOR:
+	for {
+		result := <-results
 		switch result.status {
 		case "Finished":
 			finished++
 			updateFileStatus(driver, taskInfo.TaskId.GetValue(), result)
-			if finished + failed == len(task.OriginUrls) {
+			if finished+failed == len(task.OriginUrls) {
 				break FOR
 			}
 		case "Failed":
@@ -226,7 +230,7 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 				fmt.Println("URL failed for ", result.originUrl, "after retries")
 				updateFileStatus(driver, taskInfo.TaskId.GetValue(), result)
 			}
-			if finished + failed == len(task.OriginUrls) {
+			if finished+failed == len(task.OriginUrls) {
 				break FOR
 			}
 		default:
@@ -260,7 +264,6 @@ func (exec *megatronExecutor) Shutdown(driver exec.ExecutorDriver) {
 func (exec *megatronExecutor) Error(driver exec.ExecutorDriver, err string) {
 	fmt.Println("Got error message:", err)
 }
-
 
 func init() {
 	flag.Parse() // mesos-go uses golang/glog, which requires to parse flags first

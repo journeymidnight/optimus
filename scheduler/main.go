@@ -1,47 +1,46 @@
 package main
 
 import (
-	"github.com/mesos/mesos-go/mesosproto"
-	"github.com/gogo/protobuf/proto"
-	"github.com/mesos/mesos-go/scheduler"
-	"os"
-	"log"
-	"flag"
 	"database/sql"
+	"flag"
+	"github.com/gogo/protobuf/proto"
+	"github.com/mesos/mesos-go/mesosproto"
+	"github.com/mesos/mesos-go/scheduler"
+	"log"
+	"os"
 
+	"encoding/json"
 	"git.letv.cn/zhangcan/optimus/common"
 	"time"
-	"encoding/json"
 )
 
 var (
-	CONFIG Config
-	logger *log.Logger
-	db *sql.DB
+	CONFIG        Config
+	logger        *log.Logger
+	db            *sql.DB
 	requestBuffer chan TransferRequest
 )
 
 type Config struct {
-	LogDirectory string
-	MesosMaster string
-	ExecutorUrl string
-	ExecuteCommand string
-	ApiBindAddress string
+	LogDirectory             string
+	MesosMaster              string
+	ExecutorUrl              string
+	ExecuteCommand           string
+	ApiBindAddress           string
 	DatabaseConnectionString string
-	RequestBufferSize int
-	FilesPerTask int
-	ExecutorIdleThreshold int // if an executor has taskRunning < THRESHOLD, treat it as idle
-	TaskScheduleTimeout time.Duration // if a task has been scheduled for certain time and not
-					// become "Running", consider it as lost and reschedule it
+	RequestBufferSize        int
+	FilesPerTask             int
+	ExecutorIdleThreshold    int           // if an executor has taskRunning < THRESHOLD, treat it as idle
+	TaskScheduleTimeout      time.Duration // if a task has been scheduled for certain time and not
+	// become "Running", consider it as lost and reschedule it
 	CpuPerExecutor float64
-	MemoryPerTask float64
-	DiskPerTask float64
+	MemoryPerTask  float64
+	DiskPerTask    float64
 }
 
-
-func requestHandler()  {
+func requestHandler() {
 	for {
-		request := <- requestBuffer
+		request := <-requestBuffer
 		err := insertJob(&request)
 		if err != nil {
 			logger.Println("Error inserting request: ", request, "with error: ", err)
@@ -53,16 +52,16 @@ func requestHandler()  {
 		length := len(request.OriginUrls)
 		for {
 			t := common.TransferTask{
-				JobUuid: request.uuid,
-				TargetType: request.TargetType,
+				JobUuid:      request.uuid,
+				TargetType:   request.TargetType,
 				TargetBucket: request.TargetBucket,
-				TargetAcl: request.TargetAcl,
-				Status: "Pending",
-				AccessKey: accessKey,
-				SecretKey: secretKey,
+				TargetAcl:    request.TargetAcl,
+				Status:       "Pending",
+				AccessKey:    accessKey,
+				SecretKey:    secretKey,
 			}
-			if length > cursor + CONFIG.FilesPerTask {
-				t.OriginUrls = request.OriginUrls[cursor:cursor+CONFIG.FilesPerTask]
+			if length > cursor+CONFIG.FilesPerTask {
+				t.OriginUrls = request.OriginUrls[cursor : cursor+CONFIG.FilesPerTask]
 				tasks = append(tasks, &t)
 				cursor += CONFIG.FilesPerTask
 			} else {
@@ -80,11 +79,11 @@ func requestHandler()  {
 }
 
 type scheduledTask struct {
-	id int64
+	id           int64
 	scheduleTime time.Time
 }
 
-func rescheduler()  {
+func rescheduler() {
 	for {
 		scheduledTasks := getScheduledTasks()
 		now := time.Now()
@@ -100,11 +99,11 @@ func rescheduler()  {
 	}
 }
 
-func init()  {
+func init() {
 	flag.Parse() // mesos-go uses golang/glog, which requires to parse flags first
 }
 
-func main()  {
+func main() {
 	configFile, err := os.Open("/etc/optimus.json")
 	if err != nil {
 		panic(err.Error())
@@ -116,7 +115,7 @@ func main()  {
 		panic("Error parsing config file /etc/optimus.json with error: " + err.Error())
 	}
 
-	logFile, err := os.OpenFile(CONFIG.LogDirectory + "/optimus.log",
+	logFile, err := os.OpenFile(CONFIG.LogDirectory+"/optimus.log",
 		os.O_APPEND|os.O_RDWR|os.O_CREATE, 0664)
 	if err != nil {
 		panic(err.Error())
@@ -142,7 +141,7 @@ func main()  {
 	config := scheduler.DriverConfig{
 		Scheduler: newScheduler(),
 		Framework: frameworkInfo,
-		Master: CONFIG.MesosMaster,
+		Master:    CONFIG.MesosMaster,
 	}
 	driver, err := scheduler.NewMesosSchedulerDriver(config)
 	if err != nil {

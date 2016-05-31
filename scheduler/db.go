@@ -2,8 +2,8 @@ package main
 
 import (
 	"database/sql"
-	_ "github.com/go-sql-driver/mysql"
 	"fmt"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/mesos/mesos-go/mesosproto"
 	"strconv"
 
@@ -21,7 +21,7 @@ func createDbConnection() *sql.DB {
 }
 
 func insertJob(req *TransferRequest) (err error) {
-	_ , err = db.Exec("insert job set id = 0, uuid = ?, create_time = NOW(), " +
+	_, err = db.Exec("insert job set id = 0, uuid = ?, create_time = NOW(), "+
 		"callback_url = ?, callback_token = ?, access_key = ?, status = ?",
 		req.uuid, req.callbackUrl, req.callbackToken, req.accessKey, "Pending")
 	return err
@@ -30,10 +30,12 @@ func insertJob(req *TransferRequest) (err error) {
 func insertTasks(tasks []*common.TransferTask) error {
 	for _, task := range tasks {
 		tx, err := db.Begin()
-		if err != nil {return err}
+		if err != nil {
+			return err
+		}
 		result, err := tx.Exec(
-			"insert into task(id, job_uuid, target_type, target_bucket, target_acl, status, access_key, secret_key) " +
-			"values(?, ?, ?, ?, ?, ?, ?, ?)",
+			"insert into task(id, job_uuid, target_type, target_bucket, target_acl, status, access_key, secret_key) "+
+				"values(?, ?, ?, ?, ?, ?, ?, ?)",
 			0, task.JobUuid, task.TargetType, task.TargetBucket, task.TargetAcl, task.Status, task.AccessKey, task.SecretKey)
 		if err != nil {
 			tx.Rollback()
@@ -45,8 +47,8 @@ func insertTasks(tasks []*common.TransferTask) error {
 			return err
 		}
 		for _, url := range task.OriginUrls {
-			_, err := tx.Exec("insert into url(id, task_id, origin_url, status) " +
-			"values(?, ?, ?, ?)", 0, taskId, url, task.Status)
+			_, err := tx.Exec("insert into url(id, task_id, origin_url, status) "+
+				"values(?, ?, ?, ?)", 0, taskId, url, task.Status)
 			if err != nil {
 				tx.Rollback()
 				return err
@@ -58,15 +60,15 @@ func insertTasks(tasks []*common.TransferTask) error {
 }
 
 func upsertSlave(slave *Slave) error {
-	_, err := db.Exec("insert into slave(id, uuid, hostname, status) " +
-	"values(?, ?, ?, ?) on duplicate key update " +
-	"status = values(status)," +
-	"hostname = values(hostname)", 0, slave.uuid, slave.hostname, slave.status)
+	_, err := db.Exec("insert into slave(id, uuid, hostname, status) "+
+		"values(?, ?, ?, ?) on duplicate key update "+
+		"status = values(status),"+
+		"hostname = values(hostname)", 0, slave.uuid, slave.hostname, slave.status)
 	return err
 }
 
 func getIdleExecutorsOnSlave(tx *sql.Tx, slaveUuid string) (executors []*Executor) {
-	rows, err := tx.Query("select uuid, task_running from executor where " +
+	rows, err := tx.Query("select uuid, task_running from executor where "+
 		"slave_uuid = ? and task_running < ? and status != ? for update",
 		slaveUuid, CONFIG.ExecutorIdleThreshold, "Lost")
 	if err != nil {
@@ -90,8 +92,8 @@ func getIdleExecutorsOnSlave(tx *sql.Tx, slaveUuid string) (executors []*Executo
 
 func getPendingTasks(tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
 	taskRows, err := tx.Query(
-		"select id, job_uuid, target_type, target_bucket, target_acl, access_key, secret_key from task " +
-		"where status = ? limit ? for update", "Pending", limit)
+		"select id, job_uuid, target_type, target_bucket, target_acl, access_key, secret_key from task "+
+			"where status = ? limit ? for update", "Pending", limit)
 	if err != nil {
 		logger.Println("Error querying pending tasks: ", err)
 		return
@@ -130,14 +132,14 @@ func initializeTaskStatus(tx *sql.Tx, tasks []*mesosproto.TaskInfo, slaveUuid st
 	for _, task := range tasks {
 		taskId := task.TaskId.GetValue()
 		executorUuid := task.Executor.ExecutorId.GetValue()
-		_, err := tx.Exec("insert into executor(id, slave_uuid, uuid, task_running, status) " +
-			"values(?, ?, ?, ?, ?) on duplicate key update " +
+		_, err := tx.Exec("insert into executor(id, slave_uuid, uuid, task_running, status) "+
+			"values(?, ?, ?, ?, ?) on duplicate key update "+
 			"task_running = task_running + 1", 0, slaveUuid, executorUuid, 1, "Scheduled")
 		if err != nil {
 			logger.Println("Error upsert executor: ", err)
 			continue
 		}
-		_, err = tx.Exec("update task set executor_uuid = ?, status = ?, schedule_time = NOW() where " +
+		_, err = tx.Exec("update task set executor_uuid = ?, status = ?, schedule_time = NOW() where "+
 			"id = ?", executorUuid, "Scheduled", taskId)
 		if err != nil {
 			logger.Println("Error update task: ", err)
@@ -146,8 +148,8 @@ func initializeTaskStatus(tx *sql.Tx, tasks []*mesosproto.TaskInfo, slaveUuid st
 	tx.Commit()
 }
 
-func updateUrl(update *common.UrlUpdate)  {
-	_, err := db.Exec("update url set status = ?, target_url = ? where " +
+func updateUrl(update *common.UrlUpdate) {
+	_, err := db.Exec("update url set status = ?, target_url = ? where "+
 		"task_id = ? and origin_url = ?",
 		update.Status, update.TargetUrl, update.TaskId, update.OriginUrl)
 	if err != nil {
@@ -155,21 +157,23 @@ func updateUrl(update *common.UrlUpdate)  {
 	}
 }
 
-func updateTask(taskId string, executorUuid string, status string, )  {
+func updateTask(taskId string, executorUuid string, status string) {
 	taskIdInt, _ := strconv.ParseInt(taskId, 10, 64)
 	_, err := db.Exec("update task set status = ? where id = ?", status, taskIdInt)
 	if err != nil {
 		logger.Println("Error updating status for task ", taskId, "with error ", err)
 	}
-	if status != "Failed" && status != "Finished" {return }
+	if status != "Failed" && status != "Finished" {
+		return
+	}
 	// also update status of pending files for "Failed" and "Finished"
-	_, err = db.Exec("update url set status = ? where " +
+	_, err = db.Exec("update url set status = ? where "+
 		"task_id = ? and status = ?", status, taskId, "Pending")
 	if err != nil {
 		logger.Println("Error updating url status for task ", taskId, "with error ", err)
 	}
 	// Note here we assume the status is transforming from "Scheduled" to others
-	_, err = db.Exec("update executor set task_running = task_running - 1 where " +
+	_, err = db.Exec("update executor set task_running = task_running - 1 where "+
 		"uuid = ?", executorUuid)
 	if err != nil {
 		logger.Println("Error updating task running count: ", err)
@@ -178,9 +182,9 @@ func updateTask(taskId string, executorUuid string, status string, )  {
 
 func getJobSummary(jobUuid string) (summary JobResult, err error) {
 	summary.JobUuid = jobUuid
-	rows, err := db.Query("select u.origin_url, u.status from url u " +
-		"join task t on u.task_id = t.id " +
-		"join job j on t.job_uuid = j.uuid " +
+	rows, err := db.Query("select u.origin_url, u.status from url u "+
+		"join task t on u.task_id = t.id "+
+		"join job j on t.job_uuid = j.uuid "+
 		"where j.uuid = ?", jobUuid)
 	if err != nil {
 		logger.Println("Error querying job url status: ", err)
@@ -205,7 +209,7 @@ func getJobSummary(jobUuid string) (summary JobResult, err error) {
 	return summary, nil
 }
 
-func tryFinishJob(taskId string)  {
+func tryFinishJob(taskId string) {
 	var jobUuid string
 	err := db.QueryRow("select job_uuid from task where id = ?", taskId).Scan(&jobUuid)
 	if err != nil {
@@ -213,43 +217,45 @@ func tryFinishJob(taskId string)  {
 		return
 	}
 	var failed, finished, total int
-	err = db.QueryRow("select count(*) from task where " +
+	err = db.QueryRow("select count(*) from task where "+
 		"job_uuid = ? and status = ?", jobUuid, "Finished").Scan(&finished)
 	if err != nil {
 		logger.Println("Error querying finished task number: ", err)
 		return
 	}
-	err = db.QueryRow("select count(*) from task where " +
+	err = db.QueryRow("select count(*) from task where "+
 		"job_uuid = ? and status = ?", jobUuid, "Failed").Scan(&failed)
 	if err != nil {
 		logger.Println("Error querying failed task number: ", err)
 		return
 	}
-	err = db.QueryRow("select count(*) from task where " +
-	"job_uuid = ?", jobUuid).Scan(&total)
+	err = db.QueryRow("select count(*) from task where "+
+		"job_uuid = ?", jobUuid).Scan(&total)
 	if err != nil {
 		logger.Println("Error querying total task number: ", err)
 		return
 	}
-	if failed + finished == total {
+	if failed+finished == total {
 		if failed > 0 {
-			_, err = db.Exec("update job set status = ? where " +
+			_, err = db.Exec("update job set status = ? where "+
 				"uuid = ?", "Failed", jobUuid)
-		} else  {
-			_, err = db.Exec("update job set complete_time = NOW(), status = ? where " +
+		} else {
+			_, err = db.Exec("update job set complete_time = NOW(), status = ? where "+
 				"uuid = ?", "Finished", jobUuid)
 		}
 		if err != nil {
 			logger.Println("Error updating job status: ", err)
 		}
 		var callbackUrl, callbackToken sql.NullString
-		err := db.QueryRow("select callback_token, callback_url from job where " +
+		err := db.QueryRow("select callback_token, callback_url from job where "+
 			"uuid = ?", jobUuid).Scan(&callbackToken, &callbackUrl)
 		if err != nil {
 			logger.Println("Error querying callback info: ", err)
 			return
 		}
-		if !callbackUrl.Valid || callbackUrl.String == "" {return}
+		if !callbackUrl.Valid || callbackUrl.String == "" {
+			return
+		}
 		url := callbackUrl.String
 		if callbackToken.Valid && callbackToken.String != "" {
 			url += "?" + callbackToken.String
@@ -263,22 +269,22 @@ func tryFinishJob(taskId string)  {
 	}
 }
 
-func executorLostUpdate(executorUuid string)  {
+func executorLostUpdate(executorUuid string) {
 	_, err := db.Exec("update executor set status = ? where uuid = ?",
-			"Lost", executorUuid)
+		"Lost", executorUuid)
 	if err != nil {
 		logger.Println("Error removing executor ", executorUuid, "with error ", err)
 	}
-	_ , err = db.Exec("update task set status = ? where " +
+	_, err = db.Exec("update task set status = ? where "+
 		"executor_uuid = ? and status = ?", "Failed", executorUuid, "Scheduled")
 	if err != nil {
 		logger.Println("Error updating task status for ", executorUuid, "with error ", err)
 	}
 }
 
-func slaveLostUpdate(slaveUuid string)  {
+func slaveLostUpdate(slaveUuid string) {
 	var executorUuids []string
-	rows, err := db.Query("select uuid from executor where " +
+	rows, err := db.Query("select uuid from executor where "+
 		"slave_uuid = ?", slaveUuid)
 	if err != nil {
 		logger.Println("Error querying executors for slave: ", err)
@@ -293,7 +299,7 @@ func slaveLostUpdate(slaveUuid string)  {
 		}
 		executorUuids = append(executorUuids, executorUuid)
 	}
-	_, err = db.Exec("update slave set status = ? where " +
+	_, err = db.Exec("update slave set status = ? where "+
 		"uuid = ?", "Lost", slaveUuid)
 	if err != nil {
 		logger.Println("Error updating slave status for ", slaveUuid, " with error ", err)
@@ -304,7 +310,7 @@ func slaveLostUpdate(slaveUuid string)  {
 }
 
 func getSecretKey(accessKey string) (secretKey string, err error) {
-	err = db.QueryRow("select secret_key from user where " +
+	err = db.QueryRow("select secret_key from user where "+
 		"access_key = ?", accessKey).Scan(&secretKey)
 	return
 }
@@ -320,7 +326,7 @@ func getKeysForUser(userAccessKey string, requestType string) (string, string) {
 		secretKeyColumnName = "vaas_sk"
 	}
 	var ak, sk sql.NullString
-	err := db.QueryRow("select " + accessKeyColumnName + "," + secretKeyColumnName +
+	err := db.QueryRow("select "+accessKeyColumnName+","+secretKeyColumnName+
 		" from user where access_key = ?", userAccessKey).Scan(&ak, &sk)
 	if err != nil {
 		logger.Println("Error querying AK/SK for user", userAccessKey)
@@ -331,7 +337,7 @@ func getKeysForUser(userAccessKey string, requestType string) (string, string) {
 
 func userOwnsJob(accessKey string, jobUuid string) bool {
 	var count int
-	err := db.QueryRow("select count(*) from job where " +
+	err := db.QueryRow("select count(*) from job where "+
 		"uuid = ? and access_key = ?", jobUuid, accessKey).Scan(&count)
 	if err != nil {
 		logger.Println("Error querying job: ", err)
@@ -341,7 +347,7 @@ func userOwnsJob(accessKey string, jobUuid string) bool {
 }
 
 func getScheduledTasks() (tasks []*scheduledTask) {
-	rows, err := db.Query("select id, schedule_time from task where " +
+	rows, err := db.Query("select id, schedule_time from task where "+
 		"status = ?", "Scheduled")
 	if err != nil {
 		logger.Println("Error querying scheduled tasks:", err)
@@ -371,23 +377,23 @@ func getScheduledTasks() (tasks []*scheduledTask) {
 	return
 }
 
-func rescheduleTasks(tasks []*scheduledTask)  {
+func rescheduleTasks(tasks []*scheduledTask) {
 	for _, task := range tasks {
 		var executorUuid string
-		err := db.QueryRow("select id from task where " +
+		err := db.QueryRow("select id from task where "+
 			"id = ?", task.id).Scan(&executorUuid)
 		if err != nil {
 			logger.Println("Error querying executor UUID for task", task.id,
 				"with error", err)
 			continue
 		}
-		_, err = db.Exec("update executor set task_running = task_running - 1 where " +
+		_, err = db.Exec("update executor set task_running = task_running - 1 where "+
 			"uuid = ?", executorUuid)
 		if err != nil {
 			logger.Println("Error updating executor ", executorUuid,
 				"with error", err)
 		}
-		_, err = db.Exec("update task set status = ?, executor_uuid = ? where " +
+		_, err = db.Exec("update task set status = ?, executor_uuid = ? where "+
 			"id = ?", "Pending", nil, task.id)
 		if err != nil {
 			logger.Println("Error rescheduling task", task.id, "with error", err)
@@ -395,7 +401,7 @@ func rescheduleTasks(tasks []*scheduledTask)  {
 	}
 }
 
-func clearExecutors()  {
+func clearExecutors() {
 	_, err := db.Exec("update executor set status = ?", "Lost")
 	if err != nil {
 		logger.Println("Error clearing executors: ", err)

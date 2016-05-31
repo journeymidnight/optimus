@@ -1,26 +1,26 @@
 package main
 
 import (
-	"strings"
-	"encoding/json"
-	"net/http"
-	"fmt"
-	"time"
+	"bytes"
 	"crypto/hmac"
+	"crypto/md5"
 	"crypto/sha1"
 	"encoding/base64"
-	"bytes"
-	"io/ioutil"
-	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"strings"
+	"time"
 )
 
 var (
 	AUTH_GRACE_TIME = 5 * time.Minute
-	WEB_ROOT = "../web"
+	WEB_ROOT        = "../web"
 )
 
-func response(w http.ResponseWriter, statusCode int, message string)  {
+func response(w http.ResponseWriter, statusCode int, message string) {
 	w.WriteHeader(statusCode)
 	w.Write([]byte(message))
 }
@@ -28,24 +28,38 @@ func response(w http.ResponseWriter, statusCode int, message string)  {
 // See api.markdown for details
 func verifyRequest(r *http.Request, requestBody []byte) (accessKey string, _ bool) {
 	dateString := r.Header.Get("x-date")
-	if dateString == "" {return "", false}
+	if dateString == "" {
+		return "", false
+	}
 	date, err := time.Parse("Mon, 02 Jan 2006 15:04:05 MST", dateString)
-	if err != nil {return "", false}
+	if err != nil {
+		return "", false
+	}
 	now := time.Now()
 	diff := now.Sub(date)
-	if diff > AUTH_GRACE_TIME || diff < -1 * AUTH_GRACE_TIME {
+	if diff > AUTH_GRACE_TIME || diff < -1*AUTH_GRACE_TIME {
 		return "", false
 	}
 	authHeader := r.Header.Get("Authorization")
-	if authHeader == "" {return "", false}
+	if authHeader == "" {
+		return "", false
+	}
 	segments := strings.Split(authHeader, ":")
 	accessKey = segments[0]
-	if len(segments) < 2 {return "", false}
+	if len(segments) < 2 {
+		return "", false
+	}
 	messageMac, err := base64.StdEncoding.DecodeString(segments[1])
-	if err != nil {return "", false}
+	if err != nil {
+		return "", false
+	}
 	secretKey, err := getSecretKey(accessKey)
-	if err != nil {return "", false}
-	if err != nil {return "", false}
+	if err != nil {
+		return "", false
+	}
+	if err != nil {
+		return "", false
+	}
 	hasher := md5.New()
 	hasher.Write(requestBody)
 	bodyMd5 := hex.EncodeToString(hasher.Sum(nil))
@@ -56,21 +70,21 @@ func verifyRequest(r *http.Request, requestBody []byte) (accessKey string, _ boo
 }
 
 type TransferRequest struct {
-	accessKey string
-	OriginUrls []string `json:"origin-files"`
-	TargetType string `json:"target-type"` // in s3s/Vaas
-	TargetBucket string `json:"target-bucket"`
-	TargetAcl string `json:"target-acl"`
-	uuid string
+	accessKey     string
+	OriginUrls    []string `json:"origin-files"`
+	TargetType    string   `json:"target-type"` // in s3s/Vaas
+	TargetBucket  string   `json:"target-bucket"`
+	TargetAcl     string   `json:"target-acl"`
+	uuid          string
 	callbackToken string
-	callbackUrl string
+	callbackUrl   string
 }
 
 type TransferResponse struct {
 	JobId string `json:"jobid"`
 }
 
-func putTransferJobHandler(w http.ResponseWriter, r *http.Request)  {
+func putTransferJobHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.ToUpper(r.Method) != "PUT" {
 		w.Header().Set("Allow", "PUT")
 		response(w, http.StatusMethodNotAllowed, "Only PUT method is allowed")
@@ -128,13 +142,13 @@ func putTransferJobHandler(w http.ResponseWriter, r *http.Request)  {
 }
 
 type JobResult struct {
-	JobUuid string `json:"jobid"`
+	JobUuid     string   `json:"jobid"`
 	SuccessUrls []string `json:"success-files"`
-	FailedUrls []string `json:"failed-files"`
+	FailedUrls  []string `json:"failed-files"`
 	PendingUrls []string `json:"queued-files"`
 }
 
-func putJobCallback(url string, summary *JobResult)  {
+func putJobCallback(url string, summary *JobResult) {
 	jsonSummary, err := json.Marshal(summary)
 	if err != nil {
 		logger.Println("Error marshalling json: ", err)
@@ -155,7 +169,7 @@ func putJobCallback(url string, summary *JobResult)  {
 	logger.Println("Callback has been sent to ", url, "with response code ", response.Status)
 }
 
-func getJobStatusHandler(w http.ResponseWriter, r *http.Request)  {
+func getJobStatusHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.ToUpper(r.Method) != "GET" {
 		w.Header().Set("Allow", "GET")
 		response(w, http.StatusMethodNotAllowed, "Only GET method is allowed")
@@ -177,7 +191,7 @@ func getJobStatusHandler(w http.ResponseWriter, r *http.Request)  {
 		return
 	}
 	if !userOwnsJob(accessKey, jobUuid) {
-		response(w, http.StatusForbidden, "Your key has no access to job " + jobUuid)
+		response(w, http.StatusForbidden, "Your key has no access to job "+jobUuid)
 		return
 	}
 	summary, err := getJobSummary(jobUuid)
@@ -194,7 +208,7 @@ func getJobStatusHandler(w http.ResponseWriter, r *http.Request)  {
 	response(w, http.StatusOK, string(jsonSummary))
 }
 
-func startApiServer()  {
+func startApiServer() {
 	http.HandleFunc("/transferjob", putTransferJobHandler)
 	http.HandleFunc("/status", getJobStatusHandler)
 	http.Handle("/", http.FileServer(http.Dir(WEB_ROOT)))
@@ -204,4 +218,3 @@ func startApiServer()  {
 		panic(fmt.Sprintf("Error starting API server: %v", err))
 	}
 }
-
