@@ -7,7 +7,7 @@ type TransferTask struct  {
 	TargetType string `json:"targetType"`
 	TargetBucket string `json:"targetBucket"`
 	TargetAcl string `json:"targetAcl"`
-	Status string `json:"status"`// status is in Pending/Scheduled/Failed/Finished
+	Status string `json:"status"`// status is in Pending/Scheduled/Running/Failed/Finished
 	// keys for specific service, like S3 or Vass
 	AccessKey string `json:"accessKey"`
 	SecretKey string `json:"secretKey"`

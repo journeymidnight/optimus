@@ -139,8 +139,6 @@ offers []*mesosproto.Offer)  {
 				totalDisk += *resource.GetScalar().Value
 			}
 		}
-		logger.Println("Offered cpu: ", totalCpu, "memory: ", totalMemory,
-			"disk: ", totalDisk)
 		executorCapacity, taskCapacity := calculateCapacity(totalCpu, totalMemory, totalDisk)
 
 		tx, err := db.Begin()
@@ -187,9 +185,12 @@ offer *mesosproto.OfferID)  {
 func (scheduler *Scheduler) StatusUpdate(driver scheduler.SchedulerDriver,
 taskStatus *mesosproto.TaskStatus)  {
 	switch *taskStatus.State {
+	case mesosproto.TaskState_TASK_RUNNING:
+		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Running")
 	case mesosproto.TaskState_TASK_ERROR, mesosproto.TaskState_TASK_FAILED,
 		mesosproto.TaskState_TASK_LOST:
 		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Failed")
+		tryFinishJob(taskStatus.TaskId.GetValue())
 	case mesosproto.TaskState_TASK_FINISHED:
 		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Finished")
 		tryFinishJob(taskStatus.TaskId.GetValue())
@@ -207,8 +208,6 @@ executorID *mesosproto.ExecutorID, slaveID *mesosproto.SlaveID, message string) 
 		logger.Println("Malformed framework message: ", message, "with error: ", err)
 		return
 	}
-	logger.Printf("Framework message from executor %q slave %q: %q\n",
-		executorID, slaveID, urlUpdate)
 	updateUrl(&urlUpdate)
 }
 

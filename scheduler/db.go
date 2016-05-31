@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"git.letv.cn/zhangcan/optimus/common"
+	"time"
 )
 
 func createDbConnection() *sql.DB {
@@ -136,7 +137,7 @@ func initializeTaskStatus(tx *sql.Tx, tasks []*mesosproto.TaskInfo, slaveUuid st
 			logger.Println("Error upsert executor: ", err)
 			continue
 		}
-		_, err = tx.Exec("update task set executor_uuid = ?, status = ? where " +
+		_, err = tx.Exec("update task set executor_uuid = ?, status = ?, schedule_time = NOW() where " +
 			"id = ?", executorUuid, "Scheduled", taskId)
 		if err != nil {
 			logger.Println("Error update task: ", err)
@@ -160,7 +161,8 @@ func updateTask(taskId string, executorUuid string, status string, )  {
 	if err != nil {
 		logger.Println("Error updating status for task ", taskId, "with error ", err)
 	}
-	// also update status of pending files
+	if status != "Failed" && status != "Finished" {return }
+	// also update status of pending files for "Failed" and "Finished"
 	_, err = db.Exec("update url set status = ? where " +
 		"task_id = ? and status = ?", status, taskId, "Pending")
 	if err != nil {
@@ -336,4 +338,66 @@ func userOwnsJob(accessKey string, jobUuid string) bool {
 		return false
 	}
 	return count != 0
+}
+
+func getScheduledTasks() (tasks []*scheduledTask) {
+	rows, err := db.Query("select id, schedule_time from task where " +
+		"status = ?", "Scheduled")
+	if err != nil {
+		logger.Println("Error querying scheduled tasks:", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var task scheduledTask
+		var rawTime []byte
+		if err := rows.Scan(&task.id, &rawTime); err != nil {
+			logger.Println("Row scan error:", err)
+			continue
+		}
+		local, err := time.LoadLocation("Local")
+		if err != nil {
+			logger.Println("Error loading current location:", err)
+			continue
+		}
+		date, err := time.ParseInLocation("2006-01-02 15:04:05", string(rawTime), local)
+		if err != nil {
+			logger.Println("Error parsing date string from DB: ", string(rawTime))
+			continue
+		}
+		task.scheduleTime = date
+		tasks = append(tasks, &task)
+	}
+	return
+}
+
+func rescheduleTasks(tasks []*scheduledTask)  {
+	for _, task := range tasks {
+		var executorUuid string
+		err := db.QueryRow("select id from task where " +
+			"id = ?", task.id).Scan(&executorUuid)
+		if err != nil {
+			logger.Println("Error querying executor UUID for task", task.id,
+				"with error", err)
+			continue
+		}
+		_, err = db.Exec("update executor set task_running = task_running - 1 where " +
+			"uuid = ?", executorUuid)
+		if err != nil {
+			logger.Println("Error updating executor ", executorUuid,
+				"with error", err)
+		}
+		_, err = db.Exec("update task set status = ?, executor_uuid = ? where " +
+			"id = ?", "Pending", nil, task.id)
+		if err != nil {
+			logger.Println("Error rescheduling task", task.id, "with error", err)
+		}
+	}
+}
+
+func clearExecutors()  {
+	_, err := db.Exec("update executor set status = ?", "Lost")
+	if err != nil {
+		logger.Println("Error clearing executors: ", err)
+	}
 }

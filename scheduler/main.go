@@ -10,6 +10,7 @@ import (
 	"database/sql"
 
 	"git.letv.cn/zhangcan/optimus/common"
+	"time"
 )
 
 var (
@@ -22,6 +23,8 @@ var (
 	REQUEST_BUFFER = 10000
 	FILES_PER_TASK = 10
 	EXECUTOR_IDLE_THRESHOLD = 3 // if an executor has taskRunning < THRESHOLD, treat it as idle
+	TASK_SCHEDULE_TIMEOUT = 1 * time.Minute // if a task has been scheduled for certain time and not
+					// become "Running", consider it as lost and reschedule it
 	CPU_PER_EXECUTOR = .5
 	MEM_PER_TASK = 500.
 	DISK_PER_TASK = 1024.
@@ -72,6 +75,27 @@ func requestHandler()  {
 	}
 }
 
+type scheduledTask struct {
+	id int64
+	scheduleTime time.Time
+}
+
+func rescheduler()  {
+	for {
+		scheduledTasks := getScheduledTasks()
+		now := time.Now()
+		tasksToReschedule := []*scheduledTask{}
+		for _, task := range scheduledTasks {
+			if diff := now.Sub(task.scheduleTime); diff > TASK_SCHEDULE_TIMEOUT {
+				tasksToReschedule = append(tasksToReschedule, task)
+			}
+		}
+		rescheduleTasks(tasksToReschedule)
+
+		time.Sleep(TASK_SCHEDULE_TIMEOUT)
+	}
+}
+
 func init()  {
 	flag.Parse() // mesos-go uses golang/glog, which requires to parse flags first
 }
@@ -82,11 +106,14 @@ func main()  {
 
 	db = createDbConnection()
 	defer db.Close()
+	clearExecutors()
 
 	requestBuffer = make(chan TransferRequest, REQUEST_BUFFER)
 	go requestHandler()
 
 	go startApiServer()
+
+	go rescheduler()
 
 	frameworkInfo := &mesosproto.FrameworkInfo{
 		User: proto.String(""), // let mesos-go fill in

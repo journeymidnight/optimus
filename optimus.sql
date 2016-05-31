@@ -67,6 +67,7 @@ CREATE TABLE task (
   status VARCHAR(20) NOT NULL,
   access_key VARCHAR(50),
   secret_key VARCHAR(50),
+  schedule_time DATETIME,
   PRIMARY KEY (id),
   INDEX (job_uuid),
   INDEX (executor_uuid),
