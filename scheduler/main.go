@@ -28,6 +28,8 @@ type Config struct {
 	ExecuteCommand           string
 	ApiBindAddress           string
 	DatabaseConnectionString string
+	WebRoot			 string
+	ApiAuthGraceTime 	 time.Duration // allowed time-shift for x-date header
 	RequestBufferSize        int
 	FilesPerTask             int
 	ExecutorIdleThreshold    int           // if an executor has taskRunning < THRESHOLD, treat it as idle

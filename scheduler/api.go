@@ -15,11 +15,6 @@ import (
 	"time"
 )
 
-var (
-	AUTH_GRACE_TIME = 5 * time.Minute
-	WEB_ROOT        = "../web"
-)
-
 func response(w http.ResponseWriter, statusCode int, message string) {
 	w.WriteHeader(statusCode)
 	w.Write([]byte(message))
@@ -37,7 +32,7 @@ func verifyRequest(r *http.Request, requestBody []byte) (accessKey string, _ boo
 	}
 	now := time.Now()
 	diff := now.Sub(date)
-	if diff > AUTH_GRACE_TIME || diff < -1*AUTH_GRACE_TIME {
+	if diff > CONFIG.ApiAuthGraceTime || diff < -1*CONFIG.ApiAuthGraceTime {
 		return "", false
 	}
 	authHeader := r.Header.Get("Authorization")
@@ -211,7 +206,7 @@ func getJobStatusHandler(w http.ResponseWriter, r *http.Request) {
 func startApiServer() {
 	http.HandleFunc("/transferjob", putTransferJobHandler)
 	http.HandleFunc("/status", getJobStatusHandler)
-	http.Handle("/", http.FileServer(http.Dir(WEB_ROOT)))
+	http.Handle("/", http.FileServer(http.Dir(CONFIG.WebRoot)))
 	logger.Println("Starting API server...")
 	err := http.ListenAndServe(CONFIG.ApiBindAddress, nil)
 	if err != nil {

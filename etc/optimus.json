@@ -11,5 +11,7 @@
   "TaskScheduleTimeout": 1200000000000,
   "CpuPerExecutor": 0.1,
   "MemoryPerTask": 100,
-  "DiskPerTask": 500
+  "DiskPerTask": 500,
+  "WebRoot": "../web",
+  "ApiAuthGraceTime": 300000000000
 }
