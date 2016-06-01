@@ -20,7 +20,7 @@ import (
 
 var (
 	MAX_RETRY_TIMES = 3
-	S3_ENDPOINT     = "http://s3.lecloud.com"
+	S3_ENDPOINT     = "http://s3s.lecloud.com"
 	CHUNK_SIZE      = 5 << 20 // 5 MB
 
 	results = make(chan *FileTask)
