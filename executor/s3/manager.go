@@ -22,9 +22,10 @@ type Driver struct {
 	Encrypt       bool
 	RootDirectory string
 	Bucket        *s3.Bucket
+	ContentType   string
 }
 
-func NewDriver(ak string, sk string, endpoint string, xbucket string) *Driver {
+func NewDriver(ak string, sk string, endpoint string, xbucket string, contentType string) *Driver {
 	var region = aws.Region{
 		"local_s3",
 		"",
@@ -51,7 +52,10 @@ func NewDriver(ak string, sk string, endpoint string, xbucket string) *Driver {
 	auth := aws.Auth{AccessKey:ak,SecretKey:sk}
 	s3obj := s3.New(auth, region)
 	bucket := s3obj.Bucket(xbucket)
-	return &Driver{S3:s3obj,Bucket:bucket, RootDirectory:""}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	return &Driver{S3:s3obj,Bucket:bucket,RootDirectory:"",ContentType:contentType}
 }
 
 
@@ -85,7 +89,7 @@ func (d *Driver) Reader(xpath string, offset int64) (io.ReadCloser, error) {
 }
 
 func (d *Driver) getContentType() string {
-	return "application/octet-stream"
+	return d.ContentType
 }
 
 

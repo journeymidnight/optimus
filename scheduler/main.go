@@ -124,6 +124,8 @@ func main() {
 	}
 	logger = log.New(logFile, "Optimus: ", log.LstdFlags|log.Lshortfile)
 
+	logger.Println("CONFIG: ", CONFIG)
+
 	db = createDbConnection()
 	defer db.Close()
 	clearExecutors()

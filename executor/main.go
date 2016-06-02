@@ -39,8 +39,8 @@ type FileTask struct {
 	secretKey    string
 }
 
-func s3Upload(file io.Reader, task *FileTask) (targetUrl string, err error) {
-	d := s3.NewDriver(task.accessKey, task.secretKey, S3_ENDPOINT, task.targetBucket)
+func s3Upload(file io.Reader, task *FileTask, contentType string) (targetUrl string, err error) {
+	d := s3.NewDriver(task.accessKey, task.secretKey, S3_ENDPOINT, task.targetBucket, contentType)
 	uploader, err := d.NewSimpleMultiPartWriter(task.name, CHUNK_SIZE, task.targetAcl)
 	if err != nil {
 		return
@@ -85,10 +85,11 @@ func transfer(task *FileTask) {
 		return
 	}
 	defer response.Body.Close()
+	contentType := response.Header.Get("Content-Type")
 
 	n, err := io.Copy(file, response.Body)
 	if err != nil {
-		fmt.Println("Error downloading file: ", task.name)
+		fmt.Println("Error downloading file: ", task.name, "with error", err)
 		task.status = "Failed"
 		results <- task
 		return
@@ -98,7 +99,7 @@ func transfer(task *FileTask) {
 	var targetUrl string
 	switch task.targetType {
 	case "s3s":
-		targetUrl, err = s3Upload(file, task)
+		targetUrl, err = s3Upload(file, task, contentType)
 	case "Vaas":
 		fmt.Println("Vaas upload has not been implemented")
 		task.status = "Failed"
