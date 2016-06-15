@@ -18,6 +18,11 @@ import (
 	"strings"
 )
 
+type ReaderAtSeeker interface {
+	io.ReaderAt
+	io.ReadSeeker
+}
+
 var (
 	MAX_RETRY_TIMES = 3
 	S3_ENDPOINT     = "http://s3s.lecloud.com"
@@ -39,7 +44,7 @@ type FileTask struct {
 	secretKey    string
 }
 
-func s3Upload(file io.Reader, task *FileTask, contentType string) (targetUrl string, err error) {
+func s3SimpleUpload(file io.Reader, task *FileTask, contentType string) (targetUrl string, err error) {
 	d := s3.NewDriver(task.accessKey, task.secretKey, S3_ENDPOINT, task.targetBucket, contentType)
 	uploader, err := d.NewSimpleMultiPartWriter(task.name, CHUNK_SIZE, task.targetAcl)
 	if err != nil {
@@ -51,6 +56,29 @@ func s3Upload(file io.Reader, task *FileTask, contentType string) (targetUrl str
 	if err != nil {
 		return
 	}
+	fmt.Println("File", task.name, "uploaded with", n, "bytes")
+	targetUrl = S3_ENDPOINT + "/" + task.targetBucket + task.name // task.name has a prefix "/"
+	return
+}
+
+func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string) (targetUrl string, err error) {
+	d := s3.NewDriver(task.accessKey, task.secretKey, S3_ENDPOINT, task.targetBucket, contentType)
+	uploader, err := d.NewMultiPartWriter(task.name, CHUNK_SIZE, task.targetAcl)
+	if err != nil {
+		fmt.Println("NewMultiPartWriter failed!")
+		return
+	}
+
+	parts, err := uploader.PutAll(file, int64(CHUNK_SIZE))
+	if err != nil {
+		return
+	}
+
+	n, err := uploader.Complete(parts)
+	if err != nil {
+		return
+	}
+
 	fmt.Println("File", task.name, "uploaded with", n, "bytes")
 	targetUrl = S3_ENDPOINT + "/" + task.targetBucket + task.name // task.name has a prefix "/"
 	return

@@ -162,3 +162,50 @@ func (w *SimpleMultiPartWriter) Close() error {
 	}
 	return nil
 }
+
+
+type MultiPartWriter struct {
+	driver       *Driver
+	key          string
+	minChunkSize int
+	data         []byte
+	totalSize    int64
+	parts        []s3.Part
+	multi        *s3.Multi
+}
+
+func (d *Driver) NewMultiPartWriter(xkey string, xminChunkSize int, acl string) (*MultiPartWriter, error) {
+
+	xmulti, err := d.Bucket.Multi(xkey, d.getContentType(), s3.ACL(acl))
+	if err != nil {
+		return nil, err
+	}
+
+	w := MultiPartWriter{driver: d, key: xkey, minChunkSize: xminChunkSize, totalSize: 0, multi: xmulti}
+
+	return &w, nil
+}
+
+func (w *MultiPartWriter) PutAll(r s3.ReaderAtSeeker, partSize int64) ([]s3.Part, error) {
+	parts, err := w.multi.PutAll(r, partSize)
+	if err != nil {
+		return nil, err
+	}
+	return parts, err
+}
+
+func (w *MultiPartWriter) Complete(parts []s3.Part) (int64, error) {
+	err := w.multi.Complete(parts)
+	if err != nil {
+		return 0, err
+	}
+	for index := 0; index < len(parts); index++ {
+		w.totalSize += parts[index].Size
+	}
+	w.parts = parts
+	return w.totalSize, nil
+}
+
+func (w *MultiPartWriter) Size() int64 {
+	return w.totalSize
+}
