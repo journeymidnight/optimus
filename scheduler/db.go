@@ -276,7 +276,7 @@ func executorLostUpdate(executorUuid string) {
 		logger.Println("Error removing executor ", executorUuid, "with error ", err)
 	}
 	_, err = db.Exec("update task set status = ? where "+
-		"executor_uuid = ? and status = ?", "Failed", executorUuid, "Scheduled")
+		"executor_uuid = ? and status = ?", "Failed", executorUuid, "Running")
 	if err != nil {
 		logger.Println("Error updating task status for ", executorUuid, "with error ", err)
 	}

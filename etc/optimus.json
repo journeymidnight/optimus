@@ -7,7 +7,7 @@
   "DatabaseConnectionString": "root@tcp(127.0.0.1:3306)/optimus",
   "RequestBufferSize": 10000,
   "FilesPerTask": 10,
-  "ExecutorIdleThreshold": 3,
+  "ExecutorIdleThreshold": 1,
   "TaskScheduleTimeout": 1200000000000,
   "CpuPerExecutor": 0.1,
   "MemoryPerTask": 100,
