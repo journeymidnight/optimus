@@ -9,7 +9,7 @@ import (
 	"math"
 	"strconv"
 
-	"git.letv.cn/zhangcan/optimus/common"
+	"git.letv.cn/optimus/optimus/common"
 )
 
 type Scheduler struct { // implements scheduler.Scheduler interface
