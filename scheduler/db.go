@@ -407,3 +407,11 @@ func clearExecutors() {
 		logger.Println("Error clearing executors: ", err)
 	}
 }
+
+func clearRunningTask() {
+	_, err := db.Exec("update task set status = ?, executor_uuid = NULL, schedule_time = NULL where "+
+	    "status = ?", "Pending", "Running")
+	if err != nil {
+		logger.Println("Error clearing running task with error ", err)
+	}
+}

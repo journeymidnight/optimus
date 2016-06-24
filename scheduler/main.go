@@ -129,6 +129,7 @@ func main() {
 	db = createDbConnection()
 	defer db.Close()
 	clearExecutors()
+	clearRunningTask()
 
 	requestBuffer = make(chan TransferRequest, CONFIG.RequestBufferSize)
 	go requestHandler()
