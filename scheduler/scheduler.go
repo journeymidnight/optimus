@@ -186,10 +186,11 @@ func (scheduler *Scheduler) StatusUpdate(driver scheduler.SchedulerDriver,
 	switch *taskStatus.State {
 	case mesosproto.TaskState_TASK_RUNNING:
 		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Running")
-	case mesosproto.TaskState_TASK_ERROR, mesosproto.TaskState_TASK_FAILED,
-		mesosproto.TaskState_TASK_LOST:
+	case mesosproto.TaskState_TASK_ERROR, mesosproto.TaskState_TASK_FAILED:
 		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Failed")
 		tryFinishJob(taskStatus.TaskId.GetValue())
+	case mesosproto.TaskState_TASK_LOST:
+		taskLostUpdate(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue())
 	case mesosproto.TaskState_TASK_FINISHED:
 		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Finished")
 		tryFinishJob(taskStatus.TaskId.GetValue())

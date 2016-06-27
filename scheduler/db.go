@@ -269,14 +269,23 @@ func tryFinishJob(taskId string) {
 	}
 }
 
+func taskLostUpdate(taskId string, executorUuid string) {
+	taskIdInt, _ := strconv.ParseInt(taskId, 10, 64)
+	_, err := db.Exec("update task set status = ?, executor_uuid = NULL, schedule_time = NULL where "+
+		"id = ?", "Pending", taskIdInt)
+	if err != nil {
+		logger.Println("Error updating task status for id", taskIdInt, "with error ", err)
+	}
+}
+
 func executorLostUpdate(executorUuid string) {
 	_, err := db.Exec("update executor set status = ? where uuid = ?",
 		"Lost", executorUuid)
 	if err != nil {
 		logger.Println("Error removing executor ", executorUuid, "with error ", err)
 	}
-	_, err = db.Exec("update task set status = ? where "+
-		"executor_uuid = ? and status = ?", "Failed", executorUuid, "Running")
+	_, err = db.Exec("update task set status = ?, executor_uuid = NULL, schedule_time = NULL where "+
+		"executor_uuid = ? and status = ?", "Pending", executorUuid, "Running")
 	if err != nil {
 		logger.Println("Error updating task status for ", executorUuid, "with error ", err)
 	}
@@ -410,7 +419,7 @@ func clearExecutors() {
 
 func clearRunningTask() {
 	_, err := db.Exec("update task set status = ?, executor_uuid = NULL, schedule_time = NULL where "+
-	    "status = ?", "Pending", "Running")
+		"status = ?", "Pending", "Running")
 	if err != nil {
 		logger.Println("Error clearing running task with error ", err)
 	}
