@@ -11,11 +11,11 @@ import (
 	"git.letv.cn/optimus/optimus/common"
 	"git.letv.cn/optimus/optimus/executor/s3"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type ReaderAtSeeker interface {
@@ -84,6 +84,35 @@ func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string) (targetUr
 	return
 }
 
+func fileDownload(fileDl *FileDl) (size int64, err error) {
+	var finish = make(chan bool)
+	fileDl.OnFinish(func() {
+		finish <- true
+	})
+
+	var dlErr error
+	fileDl.OnError(func(errCode int, err error) {
+		dlErr = err
+		fmt.Println("Error downloading: errCode:", errCode, "err:", err)
+	})
+
+	var exit bool
+	var dlSize int64
+	fileDl.Start()
+	for !exit {
+		dlSize = fileDl.GetDownloadedSize()
+
+		select {
+		case exit = <-finish:
+			fmt.Println("downloaded size", dlSize)
+		default:
+			time.Sleep(time.Second * 1)
+		}
+	}
+
+	return dlSize, dlErr
+}
+
 func transfer(task *FileTask) {
 	var err error
 	filename := strings.Replace(strings.Replace(task.originUrl, "/", "", -1),
@@ -98,24 +127,15 @@ func transfer(task *FileTask) {
 	defer os.Remove(filename)
 	defer file.Close()
 
-	// TODO: multi-thread downloading
-	response, err := http.Get(task.originUrl)
+	fileDl, err := NewFileDl(task.originUrl, file)
 	if err != nil {
-		fmt.Println("Error downloading file: ", task.name, "with error", err)
+		fmt.Println("Cannot new file downloader!", "with error", err)
 		task.status = "Failed"
 		results <- task
 		return
 	}
-	if response.StatusCode < 200 || response.StatusCode > 299 {
-		fmt.Println("Error downloading file: ", task.name, "with status", response.Status)
-		task.status = "Failed"
-		results <- task
-		return
-	}
-	defer response.Body.Close()
-	contentType := response.Header.Get("Content-Type")
-
-	n, err := io.Copy(file, response.Body)
+	contentType := fileDl.GetContentType()
+	n, err := fileDownload(fileDl)
 	if err != nil {
 		fmt.Println("Error downloading file: ", task.name, "with error", err)
 		task.status = "Failed"
