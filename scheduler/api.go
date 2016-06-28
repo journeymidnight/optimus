@@ -137,10 +137,11 @@ func putTransferJobHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 type JobResult struct {
-	JobUuid     string   `json:"jobid"`
-	SuccessUrls []string `json:"success-files"`
-	FailedUrls  []string `json:"failed-files"`
-	PendingUrls []string `json:"queued-files"`
+	JobUuid       string   `json:"jobid"`
+	SuccessUrls   []string `json:"success-files"`
+	FailedUrls    []string `json:"failed-files"`
+	PendingUrls   []string `json:"queued-files"`
+	SuspendedUrls []string `json:"suspended-files"`
 }
 
 func putJobCallback(url string, summary *JobResult) {
@@ -203,9 +204,79 @@ func getJobStatusHandler(w http.ResponseWriter, r *http.Request) {
 	response(w, http.StatusOK, string(jsonSummary))
 }
 
+func postSuspendJobHandler(w http.ResponseWriter, r *http.Request) {
+	if strings.ToUpper(r.Method) != "POST" {
+		w.Header().Set("Allow", "POST")
+		response(w, http.StatusMethodNotAllowed, "Only POST method is allowed")
+		return
+	}
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	accessKey, verified := verifyRequest(r, requestBody)
+	if !verified {
+		response(w, http.StatusUnauthorized, "Failed to authenticate request")
+		return
+	}
+	jobUuid := r.URL.Query().Get("jobid")
+	if jobUuid == "" {
+		response(w, http.StatusBadRequest, "Missing parameter jobid")
+		return
+	}
+	if !userOwnsJob(accessKey, jobUuid) {
+		response(w, http.StatusForbidden, "Your key has no access to job "+jobUuid)
+		return
+	}
+
+	err = suspendJob(jobUuid)
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot suspend job")
+		return
+	}
+	response(w, http.StatusOK, string(""))
+}
+
+func postResumeJobHandler(w http.ResponseWriter, r *http.Request) {
+	if strings.ToUpper(r.Method) != "POST" {
+		w.Header().Set("Allow", "POST")
+		response(w, http.StatusMethodNotAllowed, "Only POST method is allowed")
+		return
+	}
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	accessKey, verified := verifyRequest(r, requestBody)
+	if !verified {
+		response(w, http.StatusUnauthorized, "Failed to authenticate request")
+		return
+	}
+	jobUuid := r.URL.Query().Get("jobid")
+	if jobUuid == "" {
+		response(w, http.StatusBadRequest, "Missing parameter jobid")
+		return
+	}
+	if !userOwnsJob(accessKey, jobUuid) {
+		response(w, http.StatusForbidden, "Your key has no access to job "+jobUuid)
+		return
+	}
+
+	err = resumeJob(jobUuid)
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot resume job")
+		return
+	}
+	response(w, http.StatusOK, string(""))
+}
+
 func startApiServer() {
 	http.HandleFunc("/transferjob", putTransferJobHandler)
 	http.HandleFunc("/status", getJobStatusHandler)
+	http.HandleFunc("/suspendjob", postSuspendJobHandler)
+	http.HandleFunc("/resumejob", postResumeJobHandler)
 	http.Handle("/", http.FileServer(http.Dir(CONFIG.WebRoot)))
 	logger.Println("Starting API server...")
 	err := http.ListenAndServe(CONFIG.ApiBindAddress, nil)
