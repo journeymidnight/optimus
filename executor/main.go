@@ -63,23 +63,34 @@ func s3SimpleUpload(file io.Reader, task *FileTask, contentType string) (targetU
 
 func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string) (targetUrl string, err error) {
 	d := s3.NewDriver(task.accessKey, task.secretKey, S3_ENDPOINT, task.targetBucket, contentType)
-	uploader, err := d.NewMultiPartWriter(task.name, CHUNK_SIZE, task.targetAcl)
+	uploader, err := d.NewMultiPartWriter(task.name, int64(CHUNK_SIZE), task.targetAcl)
 	if err != nil {
 		fmt.Println("NewMultiPartWriter failed!")
 		return
 	}
 
-	parts, err := uploader.PutAll(file, int64(CHUNK_SIZE))
-	if err != nil {
-		return
+	var ulErr error
+	var finish = make(chan bool)
+	uploader.OnFinish(func(err error) {
+		ulErr = err
+		finish <- true
+	})
+
+	var exit bool
+	var ulSize int64
+	uploader.Start(file)
+	for !exit {
+		ulSize = uploader.GetUploadedSize()
+
+		select {
+		case exit = <-finish:
+		default:
+			time.Sleep(time.Second * 1)
+		}
 	}
 
-	n, err := uploader.Complete(parts)
-	if err != nil {
-		return
-	}
-
-	fmt.Println("File", task.name, "uploaded with", n, "bytes")
+	err = ulErr
+	fmt.Println("File", task.name, "uploaded with", ulSize, "bytes")
 	targetUrl = S3_ENDPOINT + "/" + task.targetBucket + task.name // task.name has a prefix "/"
 	return
 }
@@ -148,6 +159,12 @@ func transfer(task *FileTask) {
 	switch task.targetType {
 	case "s3s":
 		targetUrl, err = s3Upload(file, task, contentType)
+		if err != nil {
+			fmt.Println("Error uploading file: ", task.name, "with error", err)
+			task.status = "Failed"
+			results <- task
+			return
+		}
 	case "Vaas":
 		fmt.Println("Vaas upload has not been implemented")
 		task.status = "Failed"

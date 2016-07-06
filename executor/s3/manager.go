@@ -10,6 +10,8 @@ import (
   "strings"
   "bytes"
   "fmt"
+  "crypto/md5"
+  "encoding/hex"
 )
 
 
@@ -167,34 +169,137 @@ func (w *SimpleMultiPartWriter) Close() error {
 type MultiPartWriter struct {
 	driver       *Driver
 	key          string
-	minChunkSize int
-	data         []byte
+	chunkSize    int64
 	totalSize    int64
+	uploaded     int64
 	parts        []s3.Part
 	multi        *s3.Multi
+
+	onFinish     func(error)
 }
 
-func (d *Driver) NewMultiPartWriter(xkey string, xminChunkSize int, acl string) (*MultiPartWriter, error) {
+func (d *Driver) NewMultiPartWriter(xkey string, chunkSize int64, acl string) (*MultiPartWriter, error) {
 
 	xmulti, err := d.Bucket.Multi(xkey, d.getContentType(), s3.ACL(acl))
 	if err != nil {
 		return nil, err
 	}
 
-	w := MultiPartWriter{driver: d, key: xkey, minChunkSize: xminChunkSize, totalSize: 0, multi: xmulti}
+	w := MultiPartWriter{driver: d, key: xkey, chunkSize: chunkSize, totalSize: 0, multi: xmulti}
 
 	return &w, nil
 }
 
-func (w *MultiPartWriter) PutAll(r s3.ReaderAtSeeker, partSize int64) ([]s3.Part, error) {
-	parts, err := w.multi.PutAll(r, partSize)
+func (w *MultiPartWriter) Start(r s3.ReaderAtSeeker) error {
+	go func() {
+		var err error
+		for {
+			parts, err := w.putAll(r)
+			if err != nil {
+				break
+			}
+			_, err = w.complete(parts)
+			if err != nil {
+				break
+			}
+			break
+		}
+		w.triggerFinish(err)
+	}()
+
+	return nil
+}
+
+func (w *MultiPartWriter) OnFinish(fn func(error)) {
+	w.onFinish = fn
+}
+
+func (w *MultiPartWriter) triggerFinish(err error) {
+	if w.onFinish != nil {
+		go w.onFinish(err)
+	}
+}
+
+func hasCode(err error, code string) bool {
+	s3err, ok := err.(*s3.Error)
+	return ok && s3err.Code == code
+}
+
+func seekerInfo(r io.ReadSeeker) (md5hex string, err error) {
+	_, err = r.Seek(0, 0)
+	if err != nil {
+		return "", err
+	}
+	digest := md5.New()
+	_, err = io.Copy(digest, r)
+	if err != nil {
+		return "", err
+	}
+	sum := digest.Sum(nil)
+	md5hex = hex.EncodeToString(sum)
+	return md5hex, nil
+}
+
+func (w *MultiPartWriter) putAll(r s3.ReaderAtSeeker) ([]s3.Part, error) {
+	old, err := w.multi.ListParts()
+	if err != nil && !hasCode(err, "NoSuchUpload") {
+		return nil, err
+	}
+
+	reuse := 0   // Index of next old part to consider reusing.
+	current := 1 // Part number of latest good part handled.
+	totalSize, err := r.Seek(0, 2)
 	if err != nil {
 		return nil, err
 	}
-	return parts, err
+	totalSize = int64(totalSize)
+	first := true // Must send at least one empty part if the file is empty.
+	var result []s3.Part
+NextSection:
+	for offset := int64(0); offset < totalSize || first; offset += w.chunkSize {
+		first = false
+		var partSize int64
+		if offset + w.chunkSize > totalSize {
+			partSize = totalSize - offset
+		} else {
+			partSize = w.chunkSize
+		}
+		section := io.NewSectionReader(r, offset, partSize)
+		if reuse < len(old) && old[reuse].N == current {
+			// Looks like this part was already sent.
+			md5hex, err := seekerInfo(section)
+			if err != nil {
+				return nil, err
+			}
+
+			part := &old[reuse]
+			etag := md5hex
+			if part.N == current && part.Size == partSize && part.ETag == etag {
+				fmt.Println("part:", part.N, " is reused!")
+				// Checksum matches. Reuse the old part.
+				result = append(result, *part)
+				w.uploaded += partSize
+				current++
+				reuse++
+				continue NextSection
+			}
+			reuse++
+		}
+		fmt.Println("Now put part ", current)
+
+		// Part wasn't found or doesn't match. Send it.
+		part, err := w.multi.PutPart(current, section)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, part)
+		w.uploaded += partSize
+		current++
+	}
+	return result, nil
 }
 
-func (w *MultiPartWriter) Complete(parts []s3.Part) (int64, error) {
+func (w *MultiPartWriter) complete(parts []s3.Part) (int64, error) {
 	err := w.multi.Complete(parts)
 	if err != nil {
 		return 0, err
@@ -204,6 +309,10 @@ func (w *MultiPartWriter) Complete(parts []s3.Part) (int64, error) {
 	}
 	w.parts = parts
 	return w.totalSize, nil
+}
+
+func (w *MultiPartWriter) GetUploadedSize() int64 {
+	return w.uploaded
 }
 
 func (w *MultiPartWriter) Size() int64 {
