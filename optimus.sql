@@ -88,6 +88,16 @@ CREATE TABLE url (
   FOREIGN KEY (task_id) REFERENCES task(id)
 );
 
+DROP TABLE IF EXISTS schedule;
+CREATE TABLE schedule (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  access_key VARCHAR(50),
+  start INT DEFAULT 0,
+  end INT DEFAULT 0,
+  PRIMARY KEY (id),
+  INDEX (access_key)
+);
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- For tests

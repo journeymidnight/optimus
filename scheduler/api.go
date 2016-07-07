@@ -272,11 +272,62 @@ func postResumeJobHandler(w http.ResponseWriter, r *http.Request) {
 	response(w, http.StatusOK, string(""))
 }
 
+func putUserSchedule(w http.ResponseWriter, r *http.Request) {
+	if strings.ToUpper(r.Method) != "PUT" {
+		w.Header().Set("Allow", "PUT")
+		response(w, http.StatusMethodNotAllowed, "Only PUT method is allowed")
+		return
+	}
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	accessKey, verified := verifyRequest(r, requestBody)
+	if !verified {
+		response(w, http.StatusUnauthorized, "Failed to authenticate request")
+		return
+	}
+	var spans []Span
+	err = json.NewDecoder(bytes.NewReader(requestBody)).Decode(&spans)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Bad JSON body")
+		return
+	}
+	length := len(spans)
+	if length > 5 {
+		response(w, http.StatusBadRequest, "Maximum number of entries are 5")
+		return
+	}
+	for i := 0; i < length; i++ {
+		if spans[i].Start >= spans[i].End {
+			response(w, http.StatusBadRequest, "The start time is greater than end time")
+			return
+		}
+	}
+	for i := 0; i < length; i++ {
+		for j := i + 1; j < length; j++ {
+			if spans[i].Start <= spans[j].End && spans[i].End >= spans[j].Start {
+				response(w, http.StatusBadRequest, "There are overlaps in the entries")
+				return
+			}
+		}
+	}
+	err = updateScheduleEntry(accessKey, spans)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Cannot set schedule table")
+		return
+	}
+
+	response(w, http.StatusOK, "")
+}
+
 func startApiServer() {
 	http.HandleFunc("/transferjob", putTransferJobHandler)
 	http.HandleFunc("/status", getJobStatusHandler)
 	http.HandleFunc("/suspendjob", postSuspendJobHandler)
 	http.HandleFunc("/resumejob", postResumeJobHandler)
+	http.HandleFunc("/schedule", putUserSchedule)
 	http.Handle("/", http.FileServer(http.Dir(CONFIG.WebRoot)))
 	logger.Println("Starting API server...")
 	err := http.ListenAndServe(CONFIG.ApiBindAddress, nil)

@@ -20,10 +20,10 @@ func createDbConnection() *sql.DB {
 	return conn
 }
 
-func insertJob(req *TransferRequest) (err error) {
+func insertJob(req *TransferRequest, status string) (err error) {
 	_, err = db.Exec("insert job set id = 0, uuid = ?, create_time = NOW(), "+
 		"callback_url = ?, callback_token = ?, access_key = ?, status = ?",
-		req.uuid, req.callbackUrl, req.callbackToken, req.accessKey, "Pending")
+		req.uuid, req.callbackUrl, req.callbackToken, req.accessKey, status)
 	return err
 }
 
@@ -431,6 +431,80 @@ func resumeJob(jobUuid string) error {
 		logger.Println("Error resuming for job! uuid ", jobUuid, "with error ", err)
 		return err
 	}
+	return nil
+}
+
+func getScheduleEntries(entries map[string][]Span) error {
+	rows, err := db.Query("select access_key, start, end from schedule")
+	if err != nil {
+		logger.Println("Error querying table schedule:", err)
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var accessKey string
+		var span Span
+		if err := rows.Scan(&accessKey, &span.Start, &span.End); err != nil {
+			logger.Println("Row scan error:", err)
+			continue
+		}
+		_, ok := entries[accessKey]
+		if !ok {
+			var spans []Span
+			spans = append(spans, span)
+			entries[accessKey] = spans
+		} else {
+			spans := entries[accessKey]
+			spans = append(spans, span)
+			entries[accessKey] = spans
+		}
+	}
+	return nil
+}
+
+func getRequestedJobs(accessKey string, requestedJobs *[]JobEntry, status string) (count int64, err error) {
+	sql := "select uuid, status from job where access_key = " + "\"" + accessKey + "\""
+	if status != "" {
+		sql += " and status = " + "\"" + status + "\""
+	}
+	rows, err := db.Query(sql)
+	if err != nil {
+		logger.Println("Error querying job url status: ", err)
+		return 0, nil
+	}
+	defer rows.Close()
+	count = 0
+	for rows.Next() {
+		var jobEntry JobEntry
+		if err := rows.Scan(&jobEntry.JobUuid, &jobEntry.Status); err != nil {
+			logger.Println("Row scan error: ", err)
+			continue
+		}
+		*requestedJobs = append(*requestedJobs, jobEntry)
+		count += 1
+	}
+	return count, nil
+}
+
+func delAndInsertScheTable(accessKey string, spans []Span) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec("delete from schedule where access_key = ?", accessKey)
+	if err != nil {
+		tx.Rollback()
+		return err
+	}
+	for i := 0; i< len(spans); i++ {
+		_, err := tx.Exec("insert into schedule(access_key, start, end) " +
+		    "values(?, ?, ?)", accessKey, spans[i].Start, spans[i].End)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	tx.Commit()
 	return nil
 }
 

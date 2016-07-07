@@ -43,7 +43,18 @@ type Config struct {
 func requestHandler() {
 	for {
 		request := <-requestBuffer
-		err := insertJob(&request)
+		hit, err := getUserHitInfo(request.accessKey)
+		if err != nil {
+			logger.Println("Error getting user hit info: ", request.accessKey, "with error: ", err)
+			continue
+		}
+		var status string
+		if hit {
+			status = "Pending"
+		} else {
+			status = "Suspended"
+		}
+		err = insertJob(&request, status)
 		if err != nil {
 			logger.Println("Error inserting request: ", request, "with error: ", err)
 			continue
@@ -58,7 +69,7 @@ func requestHandler() {
 				TargetType:   request.TargetType,
 				TargetBucket: request.TargetBucket,
 				TargetAcl:    request.TargetAcl,
-				Status:       "Pending",
+				Status:       status,
 				AccessKey:    accessKey,
 				SecretKey:    secretKey,
 			}
@@ -130,6 +141,7 @@ func main() {
 	defer db.Close()
 	clearExecutors()
 	clearRunningTask()
+	initUserSchedule()
 
 	requestBuffer = make(chan TransferRequest, CONFIG.RequestBufferSize)
 	go requestHandler()
@@ -137,6 +149,8 @@ func main() {
 	go startApiServer()
 
 	go rescheduler()
+
+	go processScheduleEvent()
 
 	frameworkInfo := &mesosproto.FrameworkInfo{
 		User: proto.String(""), // let mesos-go fill in
