@@ -144,6 +144,14 @@ type JobResult struct {
 	SuspendedUrls []string `json:"suspended-files"`
 }
 
+type JobUrlResult struct {
+	Url           string   `json:"url"`
+	Size          int64    `json:"size"`
+	Status        string   `json:"status"`
+	Speed         int      `json:"speed"`
+	Percentage    int      `json:"percentage"`
+}
+
 func putJobCallback(url string, summary *JobResult) {
 	jsonSummary, err := json.Marshal(summary)
 	if err != nil {
@@ -322,12 +330,53 @@ func putUserSchedule(w http.ResponseWriter, r *http.Request) {
 	response(w, http.StatusOK, "")
 }
 
+func getJobDetail(w http.ResponseWriter, r *http.Request) {
+	if strings.ToUpper(r.Method) != "GET" {
+		w.Header().Set("Allow", "GET")
+		response(w, http.StatusMethodNotAllowed, "Only GET method is allowed")
+		return
+	}
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	accessKey, verified := verifyRequest(r, requestBody)
+	if !verified {
+		response(w, http.StatusUnauthorized, "Failed to authenticate request")
+		return
+	}
+	jobUuid := r.URL.Query().Get("jobid")
+	if jobUuid == "" {
+		response(w, http.StatusBadRequest, "Missing parameter jobid")
+		return
+	}
+	if !userOwnsJob(accessKey, jobUuid) {
+		response(w, http.StatusForbidden, "Your key has no access to job "+jobUuid)
+		return
+	}
+	var result []JobUrlResult
+	err = getJobUrlDetail(jobUuid, &result)
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot get url detail")
+		return
+	}
+	jsonResult, err := json.Marshal(result)
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot get url detail")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	response(w, http.StatusOK, string(jsonResult))
+}
+
 func startApiServer() {
 	http.HandleFunc("/transferjob", putTransferJobHandler)
 	http.HandleFunc("/status", getJobStatusHandler)
 	http.HandleFunc("/suspendjob", postSuspendJobHandler)
 	http.HandleFunc("/resumejob", postResumeJobHandler)
 	http.HandleFunc("/schedule", putUserSchedule)
+	http.HandleFunc("/jobdetail", getJobDetail)
 	http.Handle("/", http.FileServer(http.Dir(CONFIG.WebRoot)))
 	logger.Println("Starting API server...")
 	err := http.ListenAndServe(CONFIG.ApiBindAddress, nil)

@@ -19,3 +19,9 @@ type UrlUpdate struct {
 	TaskId    int64  `json:"taskId"`
 	Status    string `json:"status"` // status is in Pending/Finished/Failed
 }
+
+type UrlInfo struct {
+	Size        int64    `json:"size"`
+	Speed       int      `json:"speed"`
+	Percentage  int      `json:"percentage"`
+}

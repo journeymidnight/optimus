@@ -8,7 +8,9 @@ import (
 	"strconv"
 
 	"git.letv.cn/optimus/optimus/common"
+	"github.com/garyburd/redigo/redis"
 	"time"
+	"encoding/json"
 )
 
 func createDbConnection() *sql.DB {
@@ -209,6 +211,49 @@ func getJobSummary(jobUuid string) (summary JobResult, err error) {
 		}
 	}
 	return summary, nil
+}
+
+func getJobUrlDetail(jobUuid string, result *[]JobUrlResult) (err error) {
+	if pool == nil {
+		return nil
+	}
+	conn := pool.Get()
+	defer conn.Close()
+	var entry JobUrlResult
+	var urlInfo common.UrlInfo
+
+	rows, err := db.Query("select u.origin_url, u.status from url u "+
+	    "join task t on u.task_id = t.id "+
+	    "join job j on t.job_uuid = j.uuid "+
+	    "where j.uuid = ?", jobUuid)
+	if err != nil {
+		logger.Println("Error querying job url status: ", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var url, status string
+		if err := rows.Scan(&url, &status); err != nil {
+			logger.Println("Row scan error: ", err)
+			continue
+		}
+		value, err := redis.Bytes(conn.Do("GET", url))
+		if err != nil {
+			logger.Println("Error getting value from redis! key", url)
+		}
+		err = json.Unmarshal(value, &urlInfo)
+		if err != nil {
+			logger.Println("Error Unmarshal json value! key", url)
+		}
+		entry.Url = url
+		entry.Size = urlInfo.Size
+		entry.Speed = urlInfo.Speed
+		entry.Percentage = urlInfo.Percentage
+		entry.Status = status
+
+		*result = append(*result, entry)
+	}
+	return nil
 }
 
 func tryFinishJob(taskId string) {

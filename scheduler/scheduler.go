@@ -79,8 +79,10 @@ func newTask(task *common.TransferTask, executorId string,
 			Value: proto.String(executorId),
 		},
 		Command: &mesosproto.CommandInfo{
+			Shell: proto.Bool(false),
 			Value: proto.String(CONFIG.ExecuteCommand),
 			Uris:  buildUris(),
+			Arguments:  []string{"--redis", CONFIG.RedisAddress,},
 		},
 		Resources: []*mesosproto.Resource{
 			mesosutil.NewScalarResource("cpus", CONFIG.CpuPerExecutor),

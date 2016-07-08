@@ -6,6 +6,7 @@ import (
 	"github.com/gogo/protobuf/proto"
 	"github.com/mesos/mesos-go/mesosproto"
 	"github.com/mesos/mesos-go/scheduler"
+	"github.com/garyburd/redigo/redis"
 	"log"
 	"os"
 
@@ -18,6 +19,7 @@ var (
 	CONFIG        Config
 	logger        *log.Logger
 	db            *sql.DB
+	pool          *redis.Pool
 	requestBuffer chan TransferRequest
 )
 
@@ -29,6 +31,7 @@ type Config struct {
 	ApiBindAddress           string
 	DatabaseConnectionString string
 	WebRoot                  string
+	RedisAddress             string
 	ApiAuthGraceTime         time.Duration // allowed time-shift for x-date header
 	RequestBufferSize        int
 	FilesPerTask             int
@@ -38,6 +41,25 @@ type Config struct {
 	CpuPerExecutor float64
 	MemoryPerTask  float64
 	DiskPerTask    float64
+}
+
+/*https://godoc.org/github.com/garyburd/redigo/redis#Pool*/
+func newRedisPool(server, password string) *redis.Pool {
+	return &redis.Pool{
+		MaxIdle: 3,
+		IdleTimeout: 60 * time.Second,
+		Dial: func () (redis.Conn, error) {
+			c, err := redis.Dial("tcp", server)
+			if err != nil {
+				return nil, err
+			}
+			return c, err
+		},
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			_, err := c.Do("PING")
+			return err
+		},
+	}
 }
 
 func requestHandler() {
@@ -136,6 +158,14 @@ func main() {
 	logger = log.New(logFile, "Optimus: ", log.LstdFlags|log.Lshortfile)
 
 	logger.Println("CONFIG: ", CONFIG)
+
+	if CONFIG.RedisAddress != "" {
+		pool = newRedisPool(CONFIG.RedisAddress, "")
+		defer pool.Close()
+	} else {
+		pool = nil
+		logger.Println("There is no Redis to Connect!")
+	}
 
 	db = createDbConnection()
 	defer db.Close()

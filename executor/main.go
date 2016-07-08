@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"git.letv.cn/optimus/optimus/common"
 	"git.letv.cn/optimus/optimus/executor/s3"
+	"github.com/garyburd/redigo/redis"
 	"io"
 	"net/url"
 	"os"
@@ -29,7 +30,66 @@ var (
 	CHUNK_SIZE      = 5 << 20 // 5 MB
 
 	results = make(chan *FileTask)
+    pool    *redis.Pool
 )
+
+/*https://godoc.org/github.com/garyburd/redigo/redis#Pool*/
+func newRedisPool(server, password string) *redis.Pool {
+	return &redis.Pool{
+		MaxIdle: 3,
+		IdleTimeout: 60 * time.Second,
+		Dial: func () (redis.Conn, error) {
+			c, err := redis.Dial("tcp", server)
+			if err != nil {
+				return nil, err
+			}
+			return c, err
+		},
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			_, err := c.Do("PING")
+			return err
+		},
+	}
+}
+
+type RedisKeyValue struct {
+	key      string
+	urlInfo  common.UrlInfo
+	conn     *redis.Conn
+}
+
+func (rkv *RedisKeyValue) setConn(conn *redis.Conn) {
+	rkv.conn = conn
+}
+
+func (rkv *RedisKeyValue) setKey(key string) {
+	rkv.key = key
+}
+
+func (rkv *RedisKeyValue) setSize(size int64) {
+	rkv.urlInfo.Size = size
+}
+
+func (rkv *RedisKeyValue) setSpeed(speed int) {
+	rkv.urlInfo.Speed = speed
+}
+
+func (rkv *RedisKeyValue) setPercentage(percentage int) {
+	rkv.urlInfo.Percentage = percentage
+}
+
+func (rkv *RedisKeyValue) send() error {
+	if rkv.conn == nil {
+		return nil
+	}
+	value, err := json.Marshal(rkv.urlInfo)
+	if err != nil {
+		fmt.Println("Json marshal failed:", err)
+		return err
+	}
+	(*rkv.conn).Do("SET", rkv.key, value)
+	return nil
+}
 
 type FileTask struct {
 	name         string
@@ -61,13 +121,23 @@ func s3SimpleUpload(file io.Reader, task *FileTask, contentType string) (targetU
 	return
 }
 
-func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string) (targetUrl string, err error) {
+func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string, rkv *RedisKeyValue) (targetUrl string, err error) {
 	d := s3.NewDriver(task.accessKey, task.secretKey, S3_ENDPOINT, task.targetBucket, contentType)
 	uploader, err := d.NewMultiPartWriter(task.name, int64(CHUNK_SIZE), task.targetAcl)
 	if err != nil {
 		fmt.Println("NewMultiPartWriter failed!")
 		return
 	}
+	size, err := file.Seek(0, 2)
+	if err != nil {
+		fmt.Println("File seek error! ", err)
+		return
+	}
+	file.Seek(0, 0)
+	rkv.setSize(size)
+	rkv.setSpeed(0)
+	rkv.setPercentage(50)
+	rkv.send()
 
 	var ulErr error
 	var finish = make(chan bool)
@@ -77,10 +147,15 @@ func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string) (targetUr
 	})
 
 	var exit bool
-	var ulSize int64
+	var ulSize, prev int64
 	uploader.Start(file)
 	for !exit {
+		prev = ulSize
 		ulSize = uploader.GetUploadedSize()
+
+		rkv.setSpeed(int(ulSize - prev))
+		rkv.setPercentage(int((ulSize * 50) / size) + 50)
+		rkv.send()
 
 		select {
 		case exit = <-finish:
@@ -89,13 +164,17 @@ func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string) (targetUr
 		}
 	}
 
+	rkv.setSpeed(0)
+	rkv.setPercentage(100)
+	rkv.send()
+
 	err = ulErr
 	fmt.Println("File", task.name, "uploaded with", ulSize, "bytes")
 	targetUrl = S3_ENDPOINT + "/" + task.targetBucket + task.name // task.name has a prefix "/"
 	return
 }
 
-func fileDownload(fileDl *FileDl) (size int64, err error) {
+func fileDownload(fileDl *FileDl, rkv *RedisKeyValue) (size int64, err error) {
 	var finish = make(chan bool)
 	fileDl.OnFinish(func() {
 		finish <- true
@@ -107,11 +186,22 @@ func fileDownload(fileDl *FileDl) (size int64, err error) {
 		fmt.Println("Error downloading: errCode:", errCode, "err:", err)
 	})
 
+	size = fileDl.Size
+	rkv.setSize(size)
+	rkv.setSpeed(0)
+	rkv.setPercentage(0)
+	rkv.send()
+
 	var exit bool
-	var dlSize int64
+	var dlSize, prev int64
 	fileDl.Start()
 	for !exit {
+		prev = dlSize
 		dlSize = fileDl.GetDownloadedSize()
+
+		rkv.setSpeed(int(dlSize - prev))
+		rkv.setPercentage(int((dlSize * 50) / size))
+		rkv.send()
 
 		select {
 		case exit = <-finish:
@@ -120,6 +210,10 @@ func fileDownload(fileDl *FileDl) (size int64, err error) {
 			time.Sleep(time.Second * 1)
 		}
 	}
+
+	rkv.setSpeed(0)
+	rkv.setPercentage(50)
+	rkv.send()
 
 	return dlSize, dlErr
 }
@@ -138,6 +232,16 @@ func transfer(task *FileTask) {
 	defer os.Remove(filename)
 	defer file.Close()
 
+	var rkv RedisKeyValue
+	if pool != nil {
+		conn := pool.Get()
+		defer conn.Close()
+		rkv.setConn(&conn)
+		rkv.setKey(task.originUrl)
+	} else {
+		rkv.setConn(nil)
+	}
+
 	fileDl, err := NewFileDl(task.originUrl, file)
 	if err != nil {
 		fmt.Println("Cannot new file downloader!", "with error", err)
@@ -146,7 +250,7 @@ func transfer(task *FileTask) {
 		return
 	}
 	contentType := fileDl.GetContentType()
-	n, err := fileDownload(fileDl)
+	n, err := fileDownload(fileDl, &rkv)
 	if err != nil {
 		fmt.Println("Error downloading file: ", task.name, "with error", err)
 		task.status = "Failed"
@@ -158,7 +262,7 @@ func transfer(task *FileTask) {
 	var targetUrl string
 	switch task.targetType {
 	case "s3s":
-		targetUrl, err = s3Upload(file, task, contentType)
+		targetUrl, err = s3Upload(file, task, contentType, &rkv)
 		if err != nil {
 			fmt.Println("Error uploading file: ", task.name, "with error", err)
 			task.status = "Failed"
@@ -337,6 +441,23 @@ func init() {
 
 func main() {
 	fmt.Println("Starting Megatron...")
+	var addr string
+	argNum := len(os.Args)
+	if argNum == 2 {
+		if os.Args[0] == "--redis" {
+			addr = os.Args[1]
+			fmt.Println("Args:", os.Args[0], os.Args[1])
+		}
+	}
+	if addr != "" {
+		/* connect to redis  */
+		pool = newRedisPool(addr, "")
+		defer pool.Close()
+		fmt.Println("Connected to redis!")
+	} else {
+		pool = nil
+		fmt.Println("There is no Redis to Connect!")
+	}
 
 	config := exec.DriverConfig{
 		Executor: newExampleExecutor(),
