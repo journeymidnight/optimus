@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"git.letv.cn/optimus/optimus/common"
 	"time"
+	"os/signal"
+	"syscall"
 )
 
 var (
@@ -59,6 +61,29 @@ func newRedisPool(server, password string) *redis.Pool {
 			_, err := c.Do("PING")
 			return err
 		},
+	}
+}
+
+func signalListen() {
+	c := make(chan os.Signal)
+	signal.Notify(c, syscall.SIGHUP)
+	for {
+		s := <-c
+		logger.Println("Get signal:", s)
+
+		configFile, err := os.Open("/etc/optimus.json")
+		if err != nil {
+			logger.Println("Error open config file! err", err)
+			continue
+		}
+		jsonDecoder := json.NewDecoder(configFile)
+		var cfg Config
+		err = jsonDecoder.Decode(&cfg)
+		if err != nil {
+			logger.Println("Error parsing config file! err", err)
+		}
+		configFile.Close()
+		CONFIG = cfg
 	}
 }
 
@@ -143,12 +168,12 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	defer configFile.Close()
 	jsonDecoder := json.NewDecoder(configFile)
 	err = jsonDecoder.Decode(&CONFIG)
 	if err != nil {
 		panic("Error parsing config file /etc/optimus.json with error: " + err.Error())
 	}
+	configFile.Close()
 
 	logFile, err := os.OpenFile(CONFIG.LogDirectory+"/optimus.log",
 		os.O_APPEND|os.O_RDWR|os.O_CREATE, 0664)
@@ -181,6 +206,8 @@ func main() {
 	go rescheduler()
 
 	go processScheduleEvent()
+
+	go signalListen()
 
 	frameworkInfo := &mesosproto.FrameworkInfo{
 		User: proto.String(""), // let mesos-go fill in
