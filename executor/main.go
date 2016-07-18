@@ -26,7 +26,6 @@ type ReaderAtSeeker interface {
 
 var (
 	MAX_RETRY_TIMES = 3
-	S3_ENDPOINT     = "http://s3s.lecloud.com"
 	CHUNK_SIZE      = 5 << 20 // 5 MB
 
 	results = make(chan *FileTask)
@@ -92,20 +91,21 @@ func (rkv *RedisKeyValue) send() error {
 }
 
 type FileTask struct {
-	name         string
-	originUrl    string
-	targetUrl    string
-	targetType   string
-	targetBucket string
-	targetAcl    string
-	status       string // in Finished/Failed
-	retriedTimes int
-	accessKey    string
-	secretKey    string
+	name          string
+	originUrl     string
+	targetUrl     string
+	targetType    string
+	targetBucket  string
+	targetAcl     string
+	status        string // in Finished/Failed
+	retriedTimes  int
+	accessKey     string
+	secretKey     string
+	targetCluster string
 }
 
 func s3SimpleUpload(file io.Reader, task *FileTask, contentType string) (targetUrl string, err error) {
-	d := s3.NewDriver(task.accessKey, task.secretKey, S3_ENDPOINT, task.targetBucket, contentType)
+	d := s3.NewDriver(task.accessKey, task.secretKey, task.targetCluster, task.targetBucket, contentType)
 	uploader, err := d.NewSimpleMultiPartWriter(task.name, CHUNK_SIZE, task.targetAcl)
 	if err != nil {
 		return
@@ -117,12 +117,12 @@ func s3SimpleUpload(file io.Reader, task *FileTask, contentType string) (targetU
 		return
 	}
 	fmt.Println("File", task.name, "uploaded with", n, "bytes")
-	targetUrl = S3_ENDPOINT + "/" + task.targetBucket + task.name // task.name has a prefix "/"
+	targetUrl = task.targetCluster + "/" + task.targetBucket + task.name // task.name has a prefix "/"
 	return
 }
 
 func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string, rkv *RedisKeyValue) (targetUrl string, err error) {
-	d := s3.NewDriver(task.accessKey, task.secretKey, S3_ENDPOINT, task.targetBucket, contentType)
+	d := s3.NewDriver(task.accessKey, task.secretKey, task.targetCluster, task.targetBucket, contentType)
 	uploader, err := d.NewMultiPartWriter(task.name, int64(CHUNK_SIZE), task.targetAcl)
 	if err != nil {
 		fmt.Println("NewMultiPartWriter failed!")
@@ -170,7 +170,7 @@ func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string, rkv *Redi
 
 	err = ulErr
 	fmt.Println("File", task.name, "uploaded with", ulSize, "bytes")
-	targetUrl = S3_ENDPOINT + "/" + task.targetBucket + task.name // task.name has a prefix "/"
+	targetUrl = task.targetCluster + "/" + task.targetBucket + task.name // task.name has a prefix "/"
 	return
 }
 
@@ -261,7 +261,7 @@ func transfer(task *FileTask) {
 	file.Seek(0, 0)
 	var targetUrl string
 	switch task.targetType {
-	case "s3s":
+	case "s3":
 		targetUrl, err = s3Upload(file, task, contentType, &rkv)
 		if err != nil {
 			fmt.Println("Error uploading file: ", task.name, "with error", err)
@@ -368,14 +368,15 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 			return
 		}
 		t := &FileTask{
-			name:         urlParsed.Path,
-			originUrl:    sourceUrl,
-			targetType:   task.TargetType,
-			targetBucket: task.TargetBucket,
-			targetAcl:    task.TargetAcl,
-			retriedTimes: 0,
-			accessKey:    task.AccessKey,
-			secretKey:    task.SecretKey,
+			name:          urlParsed.Path,
+			originUrl:     sourceUrl,
+			targetType:    task.TargetType,
+			targetBucket:  task.TargetBucket,
+			targetAcl:     task.TargetAcl,
+			retriedTimes:  0,
+			accessKey:     task.AccessKey,
+			secretKey:     task.SecretKey,
+			targetCluster: task.TargetCluster,
 		}
 		go transfer(t)
 	}

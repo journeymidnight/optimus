@@ -23,6 +23,7 @@ var (
 	db            *sql.DB
 	pool          *redis.Pool
 	requestBuffer chan TransferRequest
+	cluster       map[string]string
 )
 
 type Config struct {
@@ -106,7 +107,13 @@ func requestHandler() {
 			logger.Println("Error inserting request: ", request, "with error: ", err)
 			continue
 		}
-		accessKey, secretKey := getKeysForUser(request.accessKey, request.TargetType)
+		var targetType string
+		if _, ok := cluster[request.TargetType]; ok {
+			targetType = "s3"
+		} else {
+			targetType = "Vaas"
+		}
+		accessKey, secretKey := getKeysForUser(request.accessKey, targetType)
 		tasks := []*common.TransferTask{}
 		cursor := 0
 		length := len(request.OriginUrls)
@@ -197,6 +204,11 @@ func main() {
 	clearExecutors()
 	clearRunningTask()
 	initUserSchedule()
+	cluster = make(map[string]string)
+	err = initS3ClusterAddr(cluster)
+	if err != nil {
+		panic("Error init s3 cluster address: err" + err.Error())
+	}
 
 	requestBuffer = make(chan TransferRequest, CONFIG.RequestBufferSize)
 	go requestHandler()

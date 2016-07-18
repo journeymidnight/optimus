@@ -98,6 +98,14 @@ CREATE TABLE schedule (
   INDEX (access_key)
 );
 
+DROP TABLE IF EXISTS cluster;
+CREATE TABLE cluster (
+  id BIGINT NOT NULL AUTO_INCREMENT,
+  target VARCHAR(10),
+  addr VARCHAR(30),
+  PRIMARY KEY (id)
+);
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- For tests

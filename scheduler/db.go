@@ -103,12 +103,20 @@ func getPendingTasks(tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
 	defer taskRows.Close()
 	for taskRows.Next() {
 		var task common.TransferTask
-		if err := taskRows.Scan(&task.Id, &task.JobUuid, &task.TargetType, &task.TargetBucket,
+		var targetType string
+		if err := taskRows.Scan(&task.Id, &task.JobUuid, &targetType, &task.TargetBucket,
 			&task.TargetAcl, &task.AccessKey, &task.SecretKey); err != nil {
 			logger.Println("Row scan error: ", err)
 			continue
 		}
 		task.Status = "Pending"
+		if addr, ok := cluster[targetType]; ok {
+			task.TargetType = "s3"
+			task.TargetCluster = addr
+		} else {
+			logger.Println("Target type is wrong. target: ", targetType)
+			continue
+		}
 		tasks = append(tasks, &task)
 	}
 	for _, task := range tasks {
@@ -374,7 +382,7 @@ func getSecretKey(accessKey string) (secretKey string, err error) {
 func getKeysForUser(userAccessKey string, requestType string) (string, string) {
 	var accessKeyColumnName, secretKeyColumnName string
 	switch requestType {
-	case "s3s":
+	case "s3":
 		accessKeyColumnName = "s3_ak"
 		secretKeyColumnName = "s3_sk"
 	case "Vaas":
@@ -566,4 +574,23 @@ func clearRunningTask() {
 	if err != nil {
 		logger.Println("Error clearing running task with error ", err)
 	}
+}
+
+func initS3ClusterAddr(cluster map[string]string) error {
+	rows, err := db.Query("select target, addr from cluster")
+	if err != nil {
+		logger.Println("Error querying table cluster:", err)
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var target string
+		var addr string
+		if err := rows.Scan(&target, &addr); err != nil {
+			logger.Println("Row scan error:", err)
+			return err
+		}
+		cluster[target] = addr
+	}
+	return nil
 }

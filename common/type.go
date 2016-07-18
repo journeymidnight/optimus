@@ -11,6 +11,7 @@ type TransferTask struct {
 	// keys for specific service, like S3 or Vass
 	AccessKey string `json:"accessKey"`
 	SecretKey string `json:"secretKey"`
+	TargetCluster string `json:"targetCluster"`
 }
 
 type UrlUpdate struct {
