@@ -130,7 +130,7 @@ func requestHandler() {
 				break
 			}
 		}
-		err = insertTasks(tasks)
+		err = insertTasks(tasks, request.priority)
 		if err != nil {
 			logger.Println("Error inserting tasks: ", tasks, "with error: ", err)
 			continue

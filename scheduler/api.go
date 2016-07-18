@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"strconv"
 )
 
 func response(w http.ResponseWriter, statusCode int, message string) {
@@ -73,6 +74,7 @@ type TransferRequest struct {
 	uuid          string
 	callbackToken string
 	callbackUrl   string
+	priority      int
 }
 
 type TransferResponse struct {
@@ -95,7 +97,21 @@ func putTransferJobHandler(w http.ResponseWriter, r *http.Request) {
 		response(w, http.StatusUnauthorized, "Failed to authenticate request")
 		return
 	}
+	var priority int64
+	priStr := r.URL.Query().Get("priority")
+	if priStr == "" {
+		priority = 16
+	} else {
+		priority, err = strconv.ParseInt(priStr, 10, 32)
+		if err != nil {
+			priority = 16
+		}
+	}
+	if priority > 16 || priority < 0 {
+		priority = 16
+	}
 	var req TransferRequest
+	req.priority = int(priority)
 	req.accessKey = accessKey
 	err = json.NewDecoder(bytes.NewReader(requestBody)).Decode(&req)
 	if err != nil {

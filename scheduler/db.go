@@ -24,21 +24,21 @@ func createDbConnection() *sql.DB {
 
 func insertJob(req *TransferRequest, status string) (err error) {
 	_, err = db.Exec("insert job set id = 0, uuid = ?, create_time = NOW(), "+
-		"callback_url = ?, callback_token = ?, access_key = ?, status = ?",
-		req.uuid, req.callbackUrl, req.callbackToken, req.accessKey, status)
+		"callback_url = ?, callback_token = ?, access_key = ?, status = ?, priority = ?",
+		req.uuid, req.callbackUrl, req.callbackToken, req.accessKey, status, req.priority)
 	return err
 }
 
-func insertTasks(tasks []*common.TransferTask) error {
+func insertTasks(tasks []*common.TransferTask, priority int) error {
 	for _, task := range tasks {
 		tx, err := db.Begin()
 		if err != nil {
 			return err
 		}
 		result, err := tx.Exec(
-			"insert into task(id, job_uuid, target_type, target_bucket, target_acl, status, access_key, secret_key) "+
-				"values(?, ?, ?, ?, ?, ?, ?, ?)",
-			0, task.JobUuid, task.TargetType, task.TargetBucket, task.TargetAcl, task.Status, task.AccessKey, task.SecretKey)
+			"insert into task(id, job_uuid, target_type, target_bucket, target_acl, status, access_key, secret_key, priority) "+
+				"values(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			0, task.JobUuid, task.TargetType, task.TargetBucket, task.TargetAcl, task.Status, task.AccessKey, task.SecretKey, priority)
 		if err != nil {
 			tx.Rollback()
 			return err
@@ -95,7 +95,7 @@ func getIdleExecutorsOnSlave(tx *sql.Tx, slaveUuid string) (executors []*Executo
 func getPendingTasks(tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
 	taskRows, err := tx.Query(
 		"select id, job_uuid, target_type, target_bucket, target_acl, access_key, secret_key from task "+
-			"where status = ? limit ? for update", "Pending", limit)
+			"where status = ? order by priority limit ? for update", "Pending", limit)
 	if err != nil {
 		logger.Println("Error querying pending tasks: ", err)
 		return
