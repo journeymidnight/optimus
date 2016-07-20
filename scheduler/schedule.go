@@ -29,11 +29,14 @@ func getUserHitInfo(accessKey string) (bool, error) {
 	now := time.Now()
 	hour := now.Hour()
 	Lock.Lock()
-	spans := ScheEntries[accessKey]
-	for _, span := range spans {
-		if span.Start <= hour && hour < span.End {
-			hit = true
+	if spans, ok := ScheEntries[accessKey]; ok {
+		for _, span := range spans {
+			if span.Start <= hour && hour < span.End {
+				hit = true
+			}
 		}
+	} else {
+		hit = true
 	}
 	Lock.Unlock()
 	return hit, nil
