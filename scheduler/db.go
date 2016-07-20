@@ -222,9 +222,13 @@ func getJobSummary(jobUuid string) (summary JobResult, err error) {
 }
 
 func getJobUrlDetail(jobUuid string, result *[]JobUrlResult) (err error) {
-	if pool == nil {
+	if CONFIG.RedisAddress == nil || CONFIG.RedisMasterName == "" {
+		logger.Println("There is no Redis to Connect!")
 		return nil
 	}
+	pool := newSentinelPool(CONFIG.RedisAddress, CONFIG.RedisMasterName)
+	defer pool.Close()
+
 	conn := pool.Get()
 	defer conn.Close()
 	var entry JobUrlResult

@@ -7,6 +7,7 @@ import (
 	"github.com/mesos/mesos-go/mesosproto"
 	"github.com/mesos/mesos-go/scheduler"
 	"github.com/garyburd/redigo/redis"
+	"github.com/FZambia/go-sentinel"
 	"log"
 	"os"
 
@@ -15,6 +16,7 @@ import (
 	"time"
 	"os/signal"
 	"syscall"
+	"errors"
 )
 
 var (
@@ -34,7 +36,8 @@ type Config struct {
 	ApiBindAddress           string
 	DatabaseConnectionString string
 	WebRoot                  string
-	RedisAddress             string
+	RedisMasterName          string
+	RedisAddress             []string
 	ApiAuthGraceTime         time.Duration // allowed time-shift for x-date header
 	RequestBufferSize        int
 	FilesPerTask             int
@@ -61,6 +64,45 @@ func newRedisPool(server, password string) *redis.Pool {
 		TestOnBorrow: func(c redis.Conn, t time.Time) error {
 			_, err := c.Do("PING")
 			return err
+		},
+	}
+}
+
+func newSentinelPool(addrs []string, master string) *redis.Pool {
+	sntnl := &sentinel.Sentinel{
+		Addrs:      addrs,
+		MasterName: master,
+		Dial: func(addr string) (redis.Conn, error) {
+			timeout := 500 * time.Millisecond
+			c, err := redis.DialTimeout("tcp", addr, timeout, timeout, timeout)
+			if err != nil {
+				return nil, err
+			}
+			return c, nil
+		},
+	}
+	return &redis.Pool{
+		MaxIdle:     3,
+		MaxActive:   64,
+		Wait:        true,
+		IdleTimeout: 240 * time.Second,
+		Dial: func() (redis.Conn, error) {
+			masterAddr, err := sntnl.MasterAddr()
+			if err != nil {
+				return nil, err
+			}
+			c, err := redis.Dial("tcp", masterAddr)
+			if err != nil {
+				return nil, err
+			}
+			return c, nil
+		},
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			if !sentinel.TestRole(c, "master") {
+				return errors.New("Role check failed")
+			} else {
+				return nil
+			}
 		},
 	}
 }
@@ -190,14 +232,6 @@ func main() {
 	logger = log.New(logFile, "Optimus: ", log.LstdFlags|log.Lshortfile)
 
 	logger.Println("CONFIG: ", CONFIG)
-
-	if CONFIG.RedisAddress != "" {
-		pool = newRedisPool(CONFIG.RedisAddress, "")
-		defer pool.Close()
-	} else {
-		pool = nil
-		logger.Println("There is no Redis to Connect!")
-	}
 
 	db = createDbConnection()
 	defer db.Close()

@@ -11,12 +11,14 @@ import (
 	"git.letv.cn/optimus/optimus/common"
 	"git.letv.cn/optimus/optimus/executor/s3"
 	"github.com/garyburd/redigo/redis"
+	"github.com/FZambia/go-sentinel"
 	"io"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+	"errors"
 )
 
 type ReaderAtSeeker interface {
@@ -47,6 +49,45 @@ func newRedisPool(server, password string) *redis.Pool {
 		TestOnBorrow: func(c redis.Conn, t time.Time) error {
 			_, err := c.Do("PING")
 			return err
+		},
+	}
+}
+
+func newSentinelPool(addrs []string, master string) *redis.Pool {
+	sntnl := &sentinel.Sentinel{
+		Addrs:      addrs,
+		MasterName: master,
+		Dial: func(addr string) (redis.Conn, error) {
+			timeout := 500 * time.Millisecond
+			c, err := redis.DialTimeout("tcp", addr, timeout, timeout, timeout)
+			if err != nil {
+				return nil, err
+			}
+			return c, nil
+		},
+	}
+	return &redis.Pool{
+		MaxIdle:     3,
+		MaxActive:   64,
+		Wait:        true,
+		IdleTimeout: 240 * time.Second,
+		Dial: func() (redis.Conn, error) {
+			masterAddr, err := sntnl.MasterAddr()
+			if err != nil {
+				return nil, err
+			}
+			c, err := redis.Dial("tcp", masterAddr)
+			if err != nil {
+				return nil, err
+			}
+			return c, nil
+		},
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			if !sentinel.TestRole(c, "master") {
+				return errors.New("Role check failed")
+			} else {
+				return nil
+			}
 		},
 	}
 }
@@ -442,17 +483,32 @@ func init() {
 
 func main() {
 	fmt.Println("Starting Megatron...")
-	var addr string
-	argNum := len(os.Args)
-	if argNum == 2 {
-		if os.Args[0] == "--redis" {
-			addr = os.Args[1]
-			fmt.Println("Args:", os.Args[0], os.Args[1])
+
+	var redisMaterName  string
+	var redisAddrsStr   string
+	num := len(os.Args) / 2
+	for i := 0; i < num; i++ {
+		index := 2 * i
+		if os.Args[index] == "--redis-master-name" {
+			redisMaterName = os.Args[index + 1]
+			continue
+		} else if os.Args[index] == "--redis-addr" {
+			redisAddrsStr = os.Args[index + 1]
+			continue
 		}
+		fmt.Println("key:", os.Args[index], "value:", os.Args[index + 1])
 	}
-	if addr != "" {
+
+	var redisAddrs []string
+	err := json.Unmarshal([]byte(redisAddrsStr), &redisAddrs)
+	if err != nil {
+		fmt.Println("Malformed redis addr arg:", err)
+		redisAddrs = nil
+	}
+
+	if redisAddrs != nil && redisMaterName != "" {
 		/* connect to redis  */
-		pool = newRedisPool(addr, "")
+		pool = newSentinelPool(redisAddrs, redisMaterName)
 		defer pool.Close()
 		fmt.Println("Connected to redis!")
 	} else {

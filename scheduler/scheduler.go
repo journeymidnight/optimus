@@ -74,6 +74,10 @@ func newTask(task *common.TransferTask, executorId string,
 	taskID := &mesosproto.TaskID{
 		Value: proto.String(strconv.FormatInt(task.Id, 10)),
 	}
+	addrs, err := json.Marshal(CONFIG.RedisAddress)
+	if err != nil {
+		logger.Println("Error marshal json: ", err)
+	}
 	executor := &mesosproto.ExecutorInfo{
 		ExecutorId: &mesosproto.ExecutorID{
 			Value: proto.String(executorId),
@@ -82,7 +86,7 @@ func newTask(task *common.TransferTask, executorId string,
 			Shell: proto.Bool(false),
 			Value: proto.String(CONFIG.ExecuteCommand),
 			Uris:  buildUris(),
-			Arguments:  []string{"--redis", CONFIG.RedisAddress,},
+			Arguments:  []string{"--redis-master-name", CONFIG.RedisMasterName,"--redis-addr", string(addrs)},
 		},
 		Resources: []*mesosproto.Resource{
 			mesosutil.NewScalarResource("cpus", CONFIG.CpuPerExecutor),
