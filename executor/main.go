@@ -290,7 +290,6 @@ func transfer(task *FileTask) {
 		results <- task
 		return
 	}
-	contentType := fileDl.GetContentType()
 	n, err := fileDownload(fileDl, &rkv)
 	if err != nil {
 		fmt.Println("Error downloading file: ", task.name, "with error", err)
@@ -298,6 +297,7 @@ func transfer(task *FileTask) {
 		results <- task
 		return
 	}
+	contentType := fileDl.GetContentType()
 	fmt.Println("File", task.name, "downloaded with", n, "bytes")
 	file.Seek(0, 0)
 	var targetUrl string

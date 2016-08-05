@@ -39,16 +39,20 @@ type Block struct {
 }
 
 func NewFileDl(url string, file *os.File) (*FileDl, error) {
+	var size int64
+	var contentType string
 	var client = &http.Client{
 		Timeout: time.Second * 20,
 	}
 	resp, err := client.Head(url)
 	if err != nil {
-		return nil, err
+		fmt.Println("Head error")
+		size = -1
+		contentType = ""
+	} else {
+		size = resp.ContentLength
+		contentType = resp.Header.Get("Content-Type")
 	}
-
-	size := resp.ContentLength
-	contentType := resp.Header.Get("Content-Type")
 
 	f := &FileDl{
 		Url:  url,
@@ -149,6 +153,9 @@ func (f *FileDl) downloadBlock(id int) error {
 	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return err
+	}
+	if end == -1 {
+		f.ContentType = resp.Header.Get("Content-Type")
 	}
 	defer resp.Body.Close()
 
