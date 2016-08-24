@@ -565,6 +565,52 @@ func delAndInsertScheTable(accessKey string, spans []Span) error {
 	return nil
 }
 
+func queryJobList(accessKey string, result *[]JobList) error {
+	rows, err := db.Query("select uuid, create_time, complete_time, status from job where "+
+	"access_key = ? order by create_time limit 1000", accessKey)
+	if err != nil {
+		logger.Println("Error querying scheduled tasks:", err)
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var job JobList
+		var rawCreateTime []byte
+		var rawCompleteTime []byte
+		if err := rows.Scan(&job.JobUuid, &rawCreateTime, &rawCompleteTime, &job.Status); err != nil {
+			logger.Println("Row scan error:", err)
+			continue
+		}
+		local, err := time.LoadLocation("Local")
+		if err != nil {
+			logger.Println("Error loading current location:", err)
+			continue
+		}
+		if len(rawCreateTime) != 0 {
+			date, err := time.ParseInLocation("2006-01-02 15:04:05", string(rawCreateTime), local)
+			if err != nil {
+				logger.Println("Error parsing date string from DB: ", string(rawCreateTime))
+				continue
+			}
+			job.CreateTime = date.Unix()
+		} else {
+			job.CreateTime = 0
+		}
+		if len(rawCompleteTime) != 0 {
+			date, err := time.ParseInLocation("2006-01-02 15:04:05", string(rawCompleteTime), local)
+			if err != nil {
+				logger.Println("Error parsing date string from DB: ", string(rawCompleteTime))
+				continue
+			}
+			job.CompleteTime = date.Unix()
+		} else  {
+			job.CompleteTime = 0
+		}
+		*result = append(*result, job)
+	}
+	return nil
+}
+
 func clearExecutors() {
 	_, err := db.Exec("update executor set status = ?", "Lost")
 	if err != nil {

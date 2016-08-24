@@ -168,6 +168,13 @@ type JobUrlResult struct {
 	Percentage    int      `json:"percentage"`
 }
 
+type JobList struct {
+    JobUuid       string    `json:"jobid"`
+	CreateTime    int64     `json:"create-time"`
+	CompleteTime  int64     `json:"complete-time"`
+	Status        string    `json:"satus"`
+}
+
 func putJobCallback(url string, summary *JobResult) {
 	jsonSummary, err := json.Marshal(summary)
 	if err != nil {
@@ -386,6 +393,38 @@ func getJobDetail(w http.ResponseWriter, r *http.Request) {
 	response(w, http.StatusOK, string(jsonResult))
 }
 
+func getJobList(w http.ResponseWriter, r *http.Request) {
+	if strings.ToUpper(r.Method) != "GET" {
+		w.Header().Set("Allow", "GET")
+		response(w, http.StatusMethodNotAllowed, "Only GET method is allowed")
+		return
+	}
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	accessKey, verified := verifyRequest(r, requestBody)
+	if !verified {
+		response(w, http.StatusUnauthorized, "Failed to authenticate request")
+		return
+	}
+	var result []JobList
+	err = queryJobList(accessKey, &result)
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot get url detail")
+		return
+	}
+	jsonResult, err := json.Marshal(result)
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot get url detail")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	response(w, http.StatusOK, string(jsonResult))
+	//response(w, http.StatusOK, "")
+}
+
 func startApiServer() {
 	http.HandleFunc("/transferjob", putTransferJobHandler)
 	http.HandleFunc("/status", getJobStatusHandler)
@@ -393,6 +432,7 @@ func startApiServer() {
 	http.HandleFunc("/resumejob", postResumeJobHandler)
 	http.HandleFunc("/schedule", putUserSchedule)
 	http.HandleFunc("/jobdetail", getJobDetail)
+	http.HandleFunc("/joblist", getJobList)
 	http.Handle("/", http.FileServer(http.Dir(CONFIG.WebRoot)))
 	logger.Println("Starting API server...")
 	err := http.ListenAndServe(CONFIG.ApiBindAddress, nil)
