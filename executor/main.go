@@ -114,8 +114,16 @@ func (rkv *RedisKeyValue) setSpeed(speed int) {
 	rkv.urlInfo.Speed = speed
 }
 
-func (rkv *RedisKeyValue) setPercentage(percentage int) {
-	rkv.urlInfo.Percentage = percentage
+func (rkv *RedisKeyValue) setPercentage(finishedSize int64, ulFlag bool) {
+	var startPercent int
+	if ulFlag {
+		startPercent = 50
+	}
+	if rkv.urlInfo.Size == 0 {
+		rkv.urlInfo.Percentage = startPercent + 50
+		return
+	}
+	rkv.urlInfo.Percentage = startPercent + int(finishedSize * 50 / rkv.urlInfo.Size)
 }
 
 func (rkv *RedisKeyValue) send() error {
@@ -177,7 +185,7 @@ func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string, rkv *Redi
 	file.Seek(0, 0)
 	rkv.setSize(size)
 	rkv.setSpeed(0)
-	rkv.setPercentage(50)
+	rkv.setPercentage(0, true)
 	rkv.send()
 
 	var ulErr error
@@ -195,7 +203,7 @@ func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string, rkv *Redi
 		ulSize = uploader.GetUploadedSize()
 
 		rkv.setSpeed(int(ulSize - prev))
-		rkv.setPercentage(int((ulSize * 50) / size) + 50)
+		rkv.setPercentage(ulSize, true)
 		rkv.send()
 
 		select {
@@ -206,7 +214,7 @@ func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string, rkv *Redi
 	}
 
 	rkv.setSpeed(0)
-	rkv.setPercentage(100)
+	rkv.setPercentage(ulSize, true)
 	rkv.send()
 
 	err = ulErr
@@ -230,7 +238,7 @@ func fileDownload(fileDl *FileDl, rkv *RedisKeyValue) (size int64, err error) {
 	size = fileDl.Size
 	rkv.setSize(size)
 	rkv.setSpeed(0)
-	rkv.setPercentage(0)
+	rkv.setPercentage(0, false)
 	rkv.send()
 
 	var exit bool
@@ -241,7 +249,7 @@ func fileDownload(fileDl *FileDl, rkv *RedisKeyValue) (size int64, err error) {
 		dlSize = fileDl.GetDownloadedSize()
 
 		rkv.setSpeed(int(dlSize - prev))
-		rkv.setPercentage(int((dlSize * 50) / size))
+		rkv.setPercentage(dlSize, false)
 		rkv.send()
 
 		select {
@@ -253,7 +261,7 @@ func fileDownload(fileDl *FileDl, rkv *RedisKeyValue) (size int64, err error) {
 	}
 
 	rkv.setSpeed(0)
-	rkv.setPercentage(50)
+	rkv.setPercentage(dlSize, false)
 	rkv.send()
 
 	return dlSize, dlErr
@@ -483,12 +491,13 @@ func init() {
 
 func main() {
 	fmt.Println("Starting Megatron...")
-
+	
 	var redisMaterName  string
 	var redisAddrsStr   string
 	num := len(os.Args) / 2
 	for i := 0; i < num; i++ {
 		index := 2 * i
+		fmt.Println("key:", os.Args[index], "value:", os.Args[index + 1])
 		if os.Args[index] == "--redis-master-name" {
 			redisMaterName = os.Args[index + 1]
 			continue
@@ -496,7 +505,6 @@ func main() {
 			redisAddrsStr = os.Args[index + 1]
 			continue
 		}
-		fmt.Println("key:", os.Args[index], "value:", os.Args[index + 1])
 	}
 
 	var redisAddrs []string
