@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Optimus</title>
+    <link href="css/bootstrap.min.css" rel="stylesheet">
+    <link href="css/optimus.css" rel="stylesheet">
+</head>
+
+<body>
+    <nav class="navbar navbar-inverse no-border-radius">
+        <div class="container-fluid">
+            <div class="navbar-header">
+                <a class="navbar-brand" href="/#">Optimus</a>
+            </div>
+            <ul class="nav navbar-nav">
+                <li><a href="/index.html">List Query</a></li>
+                <li class="active"><a>Job Status</a></li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+                <li><a href="#" id="newJob"><span class="glyphicon glyphicon-send"></span> New Transfer Job</a></li>
+                <li><a href="#" id="configureKeys"><span class="glyphicon glyphicon-wrench"></span> Configure Keys</a></li>
+            </ul>
+        </div>
+    </nav>
+    <script type="text/javascript" src="js/jquery-2.2.4.min.js"></script>
+    <script type="text/javascript" src="js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="js/hmac-sha1.js"></script>
+    <script type="text/javascript" src="js/enc-base64-min.js"></script>
+    <script type="text/javascript" src="js/md5-min.js"></script>
+    <script type="text/javascript" src="js/status.js"></script>
+    <script type="text/javascript" src="js/mustache.js"></script>
+    <div class="container-fluid">
+            <div class="col-md-2">
+                <div class="well">
+                    <h4>Job Statics</h4>
+                    <table class="table table-condensed">
+                        <tbody>
+                            <tr>
+                                <td>Upload Speed</td>
+                                <td class="text-right ng-binding" id="uploadSpeed">0</td>
+                            </tr>
+                            <tr>
+                                <td>Download Speed</td>
+                                <td class="text-right ng-binding" id="downloadSpeed">0</td>
+                            </tr>
+                            <tr>
+                                <td>Finished Size</td>
+                                <td class="text-right ng-binding" id="finishedSize">0</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="container-fluid col-md-10">
+                <div class="container-fluid table-margin">
+                    <table class="table table-striped " id="resultTable">
+                        <thead>
+                            <th>Origin URL</th>
+                            <th>Size</th>
+                            <th>Speed</th>
+                            <th>Percentage</th>
+                            <th>Status</th>
+                        </thead>
+                        <tbody>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="container-fluid hide" id=pagingDiv>
+                    <ul class="pagination" id=pagingUl>
+                        <li id="prev"><a href="#">Previous</a></li>
+                        <li id="jobPage"><a href="#">1 / 1</a></li>
+                        <li id="next"><a href="#">Next</a></li>
+                    </ul>
+                </div>
+            </div>
+    </div>
+    <div id="message" class="message"></div>
+</body>
+
+</html>

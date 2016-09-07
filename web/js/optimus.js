@@ -26,6 +26,18 @@ function busy() {
     $('#searchIdle').addClass('hide');
 }
 
+function showMain() {
+    $('#singlequery').addClass('hide');
+    $('#listquery').removeClass('hide');
+}
+
+function showListQuery() {
+    $('#listquery').removeClass('hide');
+    $('#jobIdInput').addClass('hide');
+    $('#showJob').addClass('hide');
+    console.log("showListQuery")
+}
+
 function idle() {
     $('#searchBusy').addClass('hide');
     $('#searchIdle').removeClass('hide');
@@ -46,29 +58,59 @@ function ajaxErrorHandler(data) {
     idle();
 }
 
-function updateTable(data) {
-    var tr = '<tr>' + '<td>URL</td>' + '<td>STATUS</td>' + '</tr>';
+var result
+var ENTRIES_IN_PAGE=50
+function updateJobList(data, page) {
     var table = [];
-    if(data['success-files']) {
-        data['success-files'].forEach(function(url) {
-            table.push(tr.replace(/URL/g, url).replace(/STATUS/g, 'Finished'));
-        })
+    var tpl = '<tr> <td><a href="status.html?uuid={{jobid}}">{{jobid}}</a></td> <td>{{create-time}}</td> <td>{{complete-time}}</td> <td>{{satus}}</td> </tr>'
+    var start = (page - 1) * ENTRIES_IN_PAGE
+    var end = page * ENTRIES_IN_PAGE
+    if (end > data.length) {
+        end = data.length
     }
-    if(data['queued-files']) {
-        data['queued-files'].forEach(function(url) {
-            table.push(tr.replace(/URL/g, url).replace(/STATUS/g, 'Pending'));
-        })
+    if (data.length == 0) {
+        $("#pagingDiv").addClass('hide');
+        var currPage = 0
+        var totalPages = 0
+        var value = currPage.toString() + ' / ' + totalPages.toString() 
+        $("#jobPage").children("a:first").text(value)
+    } else {
+        $("#pagingDiv").removeClass('hide');
+        var currPage = page
+        var totalPages = Math.floor((data.length + ENTRIES_IN_PAGE - 1) / ENTRIES_IN_PAGE)
+        for (var i = start; i < end; i++) {
+            var output = Mustache.render(tpl, data[i])
+            table.push(output)
+        }
+        $('#jobList > tbody').html(table);
+        var value = currPage.toString() + ' / ' + totalPages.toString()
+        $("#jobPage").children("a:first").text(value)
     }
-    if(data['failed-files']) {
-        data['failed-files'].forEach(function(url) {
-            table.push(tr.replace(/URL/g, url).replace(/STATUS/g, 'Failed'));
-        })
-    }
-    $('#resultTable > tbody').html(table);
 }
 
-function queryJob() {
-    $('#showJob').blur();
+function convertTime(data) {
+    var formatedResult = new Array()
+    for (var i = 0; i < data.length; i++) {
+        var entry = {}
+        entry['jobid'] = data[i]['jobid']
+        if (data[i]['create-time'] != 0) {
+            entry['create-time'] = $.myTime.UnixToDate(data[i]['create-time'], true, 8)
+        } else {
+            entry['create-time'] = '---'
+        }
+        if (data[i]['complete-time'] != 0) {
+            entry['complete-time'] = $.myTime.UnixToDate(data[i]['complete-time'], true, 8)
+        } else {
+            entry['complete-time'] = '---'
+        }
+        entry['satus'] = data[i]['satus']
+        formatedResult[i] = entry
+    }
+    return formatedResult
+}
+
+function queryOneJob() {
+    $('#queryOneJob').blur();
     if(!checkKeyExistence()) return;
 
     var jobId = $('#jobIdInput').val().trim();
@@ -77,14 +119,74 @@ function queryJob() {
         return;
     }
     busy();
-    var authHeader = getAuthHeader('GET', '/status');
+    var authHeader = getAuthHeader('GET', '/joblist');
     $.ajax({
-        url: '/status?jobid=' + jobId,
+        url: '/joblist?jobid=' + jobId,
         type: 'GET',
         headers: authHeader,
         success: function(data) {
-            updateTable(data);
-            $('#resultTable').removeClass('hide');
+            result = convertTime(data)
+            updateJobList(result, 1);
+            $('#jobList').removeClass('hide');
+            idle();
+        },
+        error: ajaxErrorHandler
+    })
+}
+
+function queryMoreJobs() {
+    var STATUS_FINISHED  = 1
+    var STATUS_PENDING   = 2
+    var STATUS_FAILED    = 4
+    var STATUS_SCHEDULED = 8
+
+    var url = "/joblist"
+    var para = ""
+
+    var stime = 0, etime = 0;
+    if ($("#startTime").val() != "") {
+        stime = $.myTime.DateToUnix($("#startTime").val())
+    }
+    if ($("#endTime").val() != "") {
+        etime = $.myTime.DateToUnix($("#endTime").val())
+    }
+    if (stime != 0 && etime != 0 && stime >= etime)  {
+        alert('danger', '', 'start time more than end time');
+        return;
+    }
+    if (stime != 0) {
+        para += "&stime=" + stime.toString()
+    }
+    if (etime != 0) {
+        para += "&etime=" + etime.toString()
+    }
+    var status = 0
+    if ($("#finishedChkBox").prop("checked")) {
+        status += STATUS_FINISHED
+    }
+    if ($("#pendingChkBox").prop("checked")) {
+        status += STATUS_PENDING
+    }
+    if ($("#failedChkbox").prop("checked")) {
+        status += STATUS_FAILED
+    }
+    if (status != 0) {
+        para += "&status=" + status.toString()
+    }
+    if (para.length != 0) {
+        para = '?' + para.substr(1)
+    }
+    console.log(para)
+    url += para
+    var authHeader = getAuthHeader('GET', '/joblist');
+    $.ajax({
+        url: url,
+        type: 'GET',
+        headers: authHeader,
+        success: function(data) {
+            result = convertTime(data)
+            updateJobList(result, 1);
+            $('#jobList').removeClass('hide');
             idle();
         },
         error: ajaxErrorHandler
@@ -161,18 +263,87 @@ function saveKeys() {
     $('#keyConfigureModal').modal('hide');
 }
 
+function refreshStaticsDiv(){
+    var authHeader = getAuthHeader('GET', '/finishedsize');
+    $.ajax({
+        url: '/finishedsize',
+        type: 'GET',
+        headers: authHeader,
+        success: function(data) {
+            document.getElementById('finishedSize').innerHTML = data['finished-size']
+        },
+        error: ajaxErrorHandler
+    })
+    var authHeader = getAuthHeader('GET', '/currentspeed');
+    $.ajax({
+        url: '/currentspeed',
+        type: 'GET',
+        headers: authHeader,
+        success: function(data) {
+            document.getElementById('uploadSpeed').innerHTML = data['upload-speed']
+            document.getElementById('downloadSpeed').innerHTML = data['download-speed']
+        },
+        error: ajaxErrorHandler
+    })
+}
+
+function pagingClickEvent() {
+    var page = 1
+    var value = ''
+    if ($(this).attr("id") == "prev") {
+        var subStrs = $("#jobPage").children("a:first").text().split('/')
+        var currPage = parseInt(subStrs[0])
+        var totalPages = parseInt(subStrs[1])
+        if (currPage > 1) {
+            currPage -= 1
+        }
+        page = currPage
+        value = currPage.toString() + ' / ' + totalPages.toString() 
+    } else if ($(this).attr("id") == "next") {
+        var subStrs = $("#jobPage").children("a:first").text().split('/')
+        var currPage = parseInt(subStrs[0])
+        var totalPages = parseInt(subStrs[1])
+        if (currPage < totalPages) {
+            currPage += 1
+        }
+        page = currPage
+        value = currPage.toString() + ' / ' + totalPages.toString() 
+    } else {
+        return
+    }
+    updateJobList(result, page);
+    $("#jobPage").children("a:first").text(value)
+}
+
 function init() {
     $('#newJob').click(showJobModal);
     $('#configureKeys').click(showConfigureModal);
     $('#jobIdInput').keypress(function(event) {
         var keycode = (event.keyCode ? event.keyCode : event.which);
         if(keycode == '13') { // Enter key
-            queryJob();
+            queryOneJob();
         }
     });
-    $('#showJob').click(queryJob);
+    $('#queryOneJob').click(queryOneJob);
+    $('#queryMoreJobs').click(queryMoreJobs);
     $('#jobSubmit').click(submitJob);
     $('#saveKeys').click(saveKeys);
+
+    $(".form_datetime").datetimepicker({
+        //language:  'fr',
+        weekStart: 1,
+        todayBtn:  1,
+        autoclose: 1,
+        todayHighlight: 1,
+        startView: 2,
+        forceParse: 0,
+        showMeridian: 1
+    });
+
+    refreshStaticsDiv();
+    setInterval("refreshStaticsDiv();",10000);
+
+    $('#pagingUl').on('click','li', pagingClickEvent);
 
     var type = $('#type');
     var acl = $('#acl');
