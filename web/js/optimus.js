@@ -221,6 +221,7 @@ function submitJob() {
     var data;
     switch (type) {
         case "s3s":
+        case "cn-north-1":
             var bucket = $('#bucket').val().trim();
             if(bucket === "") {
                 alert('danger', '', 'No bucket specified');
