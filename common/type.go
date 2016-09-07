@@ -19,6 +19,7 @@ type UrlUpdate struct {
 	TargetUrl string `json:"targetUrl"`
 	TaskId    int64  `json:"taskId"`
 	Status    string `json:"status"` // status is in Pending/Finished/Failed
+	Size      int64  `json:"size"`
 }
 
 type UrlInfo struct {

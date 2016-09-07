@@ -154,14 +154,25 @@ func initializeTaskStatus(tx *sql.Tx, tasks []*mesosproto.TaskInfo, slaveUuid st
 		if err != nil {
 			logger.Println("Error update task: ", err)
 		}
+		var transferTask common.TransferTask
+		err = json.Unmarshal(task.Data, &transferTask)
+		if err != nil {
+			fmt.Println("Malformed task info:", err)
+			continue
+		}
+		_, err = tx.Exec("update job set status = ? where "+
+		    "uuid = ? and status = ?", "Scheduled", transferTask.JobUuid, "Pending")
+		if err != nil {
+			logger.Println("Error update job: ", err)
+		}
 	}
 	tx.Commit()
 }
 
 func updateUrl(update *common.UrlUpdate) {
-	_, err := db.Exec("update url set status = ?, target_url = ? where "+
+	_, err := db.Exec("update url set status = ?, target_url = ?, size = ? where "+
 		"task_id = ? and origin_url = ?",
-		update.Status, update.TargetUrl, update.TaskId, update.OriginUrl)
+		update.Status, update.TargetUrl, update.Size, update.TaskId, update.OriginUrl)
 	if err != nil {
 		logger.Println("Error updating url: ", err)
 	}
@@ -295,12 +306,22 @@ func tryFinishJob(taskId string) {
 		return
 	}
 	if failed+finished == total {
+		var finishedSize int64
+		err = db.QueryRow("select sum(size) from url u "+
+			"join task t on u.task_id = t.id "+
+			"join job j on t.job_uuid = j.uuid "+
+			"where j.uuid = ? and u.status = ?", jobUuid, "Finished").Scan(&finishedSize)
+		if err != nil {
+			logger.Println("Error get total finished size: ", err)
+			return
+		}
+
 		if failed > 0 {
 			_, err = db.Exec("update job set status = ? where "+
 				"uuid = ?", "Failed", jobUuid)
 		} else {
-			_, err = db.Exec("update job set complete_time = NOW(), status = ? where "+
-				"uuid = ?", "Finished", jobUuid)
+			_, err = db.Exec("update job set complete_time = NOW(), status = ?, finished_size = ? where "+
+				"uuid = ?", "Finished", finishedSize, jobUuid)
 		}
 		if err != nil {
 			logger.Println("Error updating job status: ", err)
@@ -565,9 +586,31 @@ func delAndInsertScheTable(accessKey string, spans []Span) error {
 	return nil
 }
 
-func queryJobList(accessKey string, result *[]JobList) error {
-	rows, err := db.Query("select uuid, create_time, complete_time, status from job where "+
-	"access_key = ? order by create_time limit 1000", accessKey)
+func queryJobList(accessKey string, stime string, etime string, status int, jobid string, result *[]JobList) error {
+	sql := "select uuid, create_time, complete_time, status from job where access_key = \"" + accessKey + "\""
+	if len(stime) != 0 {
+		sql = sql + " AND create_time > FROM_UNIXTIME(" + stime + ")"
+	}
+	if len(etime) != 0 {
+		sql = sql + " AND create_time < FROM_UNIXTIME(" + etime + ")"
+	}
+	if jobid != "" {
+		sql = sql + " AND uuid = \"" + jobid + "\""
+	}
+	if status & 1 != 0 {
+		sql = sql + " AND status = \"Finished\""
+	}
+	if status & 2 != 0 {
+		sql = sql + " AND status = \"Pending\""
+	}
+	if status & 4 != 0 {
+		sql = sql + " AND status = \"Failed\""
+	}
+	if status & 8 != 0 {
+		sql = sql + " AND status = \"Scheduled\""
+	}
+	logger.Println("EqueryJobList:", sql)
+	rows, err := db.Query(sql)
 	if err != nil {
 		logger.Println("Error querying scheduled tasks:", err)
 		return err
@@ -607,6 +650,36 @@ func queryJobList(accessKey string, result *[]JobList) error {
 			job.CompleteTime = 0
 		}
 		*result = append(*result, job)
+	}
+	return nil
+}
+
+func queryFinishedSize(accessKey string) (int64, error) {
+	var totalFinishedSize int64
+	err := db.QueryRow("select sum(finished_size) from job where access_key = ?", accessKey).Scan(&totalFinishedSize)
+	if err != nil {
+		logger.Println("Error get total total finished size: ", err)
+		return 0, nil
+	}
+
+	return totalFinishedSize, nil
+}
+
+func queryScheduledJobUuids(accessKey string, jobUuids *[]string) error {
+	rows, err := db.Query("select uuid from job where "+
+	"access_key = ? and status = ?", accessKey, "Scheduled")
+	if err != nil {
+		logger.Println("Error querying scheduled tasks:", err)
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var uuid string
+		if err := rows.Scan(&uuid); err != nil {
+			logger.Println("Row scan error:", err)
+			continue
+		}
+		*jobUuids = append(*jobUuids, uuid)
 	}
 	return nil
 }

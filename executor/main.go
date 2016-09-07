@@ -110,6 +110,10 @@ func (rkv *RedisKeyValue) setSize(size int64) {
 	rkv.urlInfo.Size = size
 }
 
+func (rkv *RedisKeyValue) getSize() int64{
+	return rkv.urlInfo.Size
+}
+
 func (rkv *RedisKeyValue) setSpeed(speed int) {
 	rkv.urlInfo.Speed = speed
 }
@@ -121,6 +125,9 @@ func (rkv *RedisKeyValue) setPercentage(finishedSize int64, ulFlag bool) {
 	}
 	if rkv.urlInfo.Size == 0 {
 		rkv.urlInfo.Percentage = startPercent + 50
+		return
+	} else if rkv.urlInfo.Size == -1 {
+		rkv.urlInfo.Percentage = -1
 		return
 	}
 	rkv.urlInfo.Percentage = startPercent + int(finishedSize * 50 / rkv.urlInfo.Size)
@@ -135,6 +142,7 @@ func (rkv *RedisKeyValue) send() error {
 		fmt.Println("Json marshal failed:", err)
 		return err
 	}
+	fmt.Println("url", rkv.key, "speed", rkv.urlInfo.Speed, "percentage", rkv.urlInfo.Percentage, "size", rkv.urlInfo.Size)
 	(*rkv.conn).Do("SET", rkv.key, value)
 	return nil
 }
@@ -151,6 +159,7 @@ type FileTask struct {
 	accessKey     string
 	secretKey     string
 	targetCluster string
+	size          int64
 }
 
 func s3SimpleUpload(file io.Reader, task *FileTask, contentType string) (targetUrl string, err error) {
@@ -290,6 +299,9 @@ func transfer(task *FileTask) {
 	} else {
 		rkv.setConn(nil)
 	}
+	rkv.urlInfo.Size = 0
+	rkv.urlInfo.Speed = 0
+	rkv.urlInfo.Percentage = 0
 
 	fileDl, err := NewFileDl(task.originUrl, file)
 	if err != nil {
@@ -338,6 +350,7 @@ func transfer(task *FileTask) {
 
 	task.status = "Finished"
 	task.targetUrl = targetUrl
+	task.size = rkv.getSize()
 	results <- task
 }
 
@@ -384,6 +397,7 @@ func updateFileStatus(driver exec.ExecutorDriver, taskId string, fileTask *FileT
 		TargetUrl: fileTask.targetUrl,
 		TaskId:    id,
 		Status:    fileTask.status,
+		Size:      fileTask.size,
 	}
 	jsonUpdate, err := json.Marshal(update)
 	if err != nil {
@@ -426,6 +440,7 @@ func (exec *megatronExecutor) LaunchTask(driver exec.ExecutorDriver, taskInfo *m
 			accessKey:     task.AccessKey,
 			secretKey:     task.SecretKey,
 			targetCluster: task.TargetCluster,
+			size:          0,
 		}
 		go transfer(t)
 	}

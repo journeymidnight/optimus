@@ -175,6 +175,15 @@ type JobList struct {
 	Status        string    `json:"satus"`
 }
 
+type FinishedSize struct {
+	FinishedSize  int64     `json:"finished-size"`
+}
+
+type CurrentSpeed struct {
+	UploadSpeed   int64     `json:"upload-speed"`
+	DownloadSpeed int64     `json:"download-speed"`
+}
+
 func putJobCallback(url string, summary *JobResult) {
 	jsonSummary, err := json.Marshal(summary)
 	if err != nil {
@@ -409,8 +418,21 @@ func getJobList(w http.ResponseWriter, r *http.Request) {
 		response(w, http.StatusUnauthorized, "Failed to authenticate request")
 		return
 	}
+	stime := r.URL.Query().Get("stime")
+	etime := r.URL.Query().Get("etime")
+	statusStr := r.URL.Query().Get("status")
+	jobid := r.URL.Query().Get("jobid")
+	status := 0
+	if len(statusStr) != 0 {
+		status, err = strconv.Atoi(statusStr)
+		if err != nil {
+			logger.Println("Failed to convert to int")
+		}
+	}
+	logger.Println("stime", stime, "etime", etime, "status", statusStr, "jobid", jobid)
+
 	var result []JobList
-	err = queryJobList(accessKey, &result)
+	err = queryJobList(accessKey, stime, etime, status, jobid, &result)
 	if err != nil {
 		response(w, http.StatusInternalServerError, "Cannot get url detail")
 		return
@@ -425,6 +447,90 @@ func getJobList(w http.ResponseWriter, r *http.Request) {
 	//response(w, http.StatusOK, "")
 }
 
+func getFinishedSize(w http.ResponseWriter, r *http.Request) {
+	if strings.ToUpper(r.Method) != "GET" {
+		w.Header().Set("Allow", "GET")
+		response(w, http.StatusMethodNotAllowed, "Only GET method is allowed")
+		return
+	}
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	accessKey, verified := verifyRequest(r, requestBody)
+	if !verified {
+		response(w, http.StatusUnauthorized, "Failed to authenticate request")
+		return
+	}
+
+	totalSize, err := queryFinishedSize(accessKey)
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot get total size")
+		return
+	}
+
+	jsonResult, err := json.Marshal(FinishedSize{totalSize})
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot get url detail")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	response(w, http.StatusOK, string(jsonResult))
+}
+
+func getCurrSpeed(w http.ResponseWriter, r *http.Request) {
+	if strings.ToUpper(r.Method) != "GET" {
+		w.Header().Set("Allow", "GET")
+		response(w, http.StatusMethodNotAllowed, "Only GET method is allowed")
+		return
+	}
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	accessKey, verified := verifyRequest(r, requestBody)
+	if !verified {
+		response(w, http.StatusUnauthorized, "Failed to authenticate request")
+		return
+	}
+
+	var jobUuids []string
+	err = queryScheduledJobUuids(accessKey, &jobUuids)
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot get total size")
+		return
+	}
+
+	var uSpeed, dSpeed, finishedSize int64
+	for _, uuid := range jobUuids {
+		var result []JobUrlResult
+		err = getJobUrlDetail(uuid, &result)
+		if err != nil {
+			response(w, http.StatusInternalServerError, "Cannot get url detail")
+			return
+		}
+		for _, urlInfo := range result {
+			if urlInfo.Percentage == 100 {
+				finishedSize += int64(urlInfo.Size)
+			} else if urlInfo.Percentage > 50 {
+				uSpeed += int64(urlInfo.Speed)
+			} else if urlInfo.Percentage > 0 {
+				dSpeed += int64(urlInfo.Speed)
+			}
+		}
+	}
+
+	jsonResult, err := json.Marshal(CurrentSpeed{uSpeed, dSpeed})
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Cannot get url detail")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	response(w, http.StatusOK, string(jsonResult))
+}
+
 func startApiServer() {
 	http.HandleFunc("/transferjob", putTransferJobHandler)
 	http.HandleFunc("/status", getJobStatusHandler)
@@ -433,6 +539,8 @@ func startApiServer() {
 	http.HandleFunc("/schedule", putUserSchedule)
 	http.HandleFunc("/jobdetail", getJobDetail)
 	http.HandleFunc("/joblist", getJobList)
+	http.HandleFunc("/finishedsize", getFinishedSize)
+	http.HandleFunc("/currentspeed", getCurrSpeed)
 	http.Handle("/", http.FileServer(http.Dir(CONFIG.WebRoot)))
 	logger.Println("Starting API server...")
 	err := http.ListenAndServe(CONFIG.ApiBindAddress, nil)
