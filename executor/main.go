@@ -28,7 +28,7 @@ type ReaderAtSeeker interface {
 
 var (
 	MAX_RETRY_TIMES = 3
-	CHUNK_SIZE      = 5 << 20 // 5 MB
+	CHUNK_SIZE      = 8 << 20 // 8 MB
 
 	results = make(chan *FileTask)
     pool    *redis.Pool
