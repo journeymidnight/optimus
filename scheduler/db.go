@@ -8,7 +8,6 @@ import (
 	"strconv"
 
 	"git.letv.cn/optimus/optimus/common"
-	"github.com/garyburd/redigo/redis"
 	"time"
 	"encoding/json"
 )
@@ -232,53 +231,6 @@ func getJobSummary(jobUuid string) (summary JobResult, err error) {
 	return summary, nil
 }
 
-func getJobUrlDetail(jobUuid string, result *[]JobUrlResult) (err error) {
-	if CONFIG.RedisAddress == nil || CONFIG.RedisMasterName == "" {
-		logger.Println("There is no Redis to Connect!")
-		return nil
-	}
-	pool := newSentinelPool(CONFIG.RedisAddress, CONFIG.RedisMasterName)
-	defer pool.Close()
-
-	conn := pool.Get()
-	defer conn.Close()
-	var entry JobUrlResult
-	var urlInfo common.UrlInfo
-
-	rows, err := db.Query("select u.origin_url, u.status from url u "+
-	    "join task t on u.task_id = t.id "+
-	    "join job j on t.job_uuid = j.uuid "+
-	    "where j.uuid = ?", jobUuid)
-	if err != nil {
-		logger.Println("Error querying job url status: ", err)
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var url, status string
-		if err := rows.Scan(&url, &status); err != nil {
-			logger.Println("Row scan error: ", err)
-			continue
-		}
-		value, err := redis.Bytes(conn.Do("GET", url))
-		if err != nil {
-			logger.Println("Error getting value from redis! key", url)
-		}
-		err = json.Unmarshal(value, &urlInfo)
-		if err != nil {
-			logger.Println("Error Unmarshal json value! key", url)
-		}
-		entry.Url = url
-		entry.Size = urlInfo.Size
-		entry.Speed = urlInfo.Speed
-		entry.Percentage = urlInfo.Percentage
-		entry.Status = status
-
-		*result = append(*result, entry)
-	}
-	return nil
-}
-
 func tryFinishJob(taskId string) {
 	var jobUuid string
 	err := db.QueryRow("select job_uuid from task where id = ?", taskId).Scan(&jobUuid)
@@ -307,13 +259,15 @@ func tryFinishJob(taskId string) {
 	}
 	if failed+finished == total {
 		var finishedSize int64
-		err = db.QueryRow("select sum(size) from url u "+
-			"join task t on u.task_id = t.id "+
-			"join job j on t.job_uuid = j.uuid "+
-			"where j.uuid = ? and u.status = ?", jobUuid, "Finished").Scan(&finishedSize)
-		if err != nil {
-			logger.Println("Error get total finished size: ", err)
-			return
+		if finished > 0 {
+			err = db.QueryRow("select sum(u.size) from url u "+
+			    "join task t on u.task_id = t.id "+
+			    "join job j on t.job_uuid = j.uuid "+
+			    "where j.uuid = ? and u.status = ?", jobUuid, "Finished").Scan(&finishedSize)
+			if err != nil {
+				logger.Println("Error get total finished size: ", err)
+				return
+			}
 		}
 
 		if failed > 0 {
@@ -609,6 +563,7 @@ func queryJobList(accessKey string, stime string, etime string, status int, jobi
 	if status & 8 != 0 {
 		sql = sql + " AND status = \"Scheduled\""
 	}
+	sql += " order by create_time desc limit 1000"
 	logger.Println("EqueryJobList:", sql)
 	rows, err := db.Query(sql)
 	if err != nil {
@@ -680,6 +635,26 @@ func queryScheduledJobUuids(accessKey string, jobUuids *[]string) error {
 			continue
 		}
 		*jobUuids = append(*jobUuids, uuid)
+	}
+	return nil
+}
+
+func queryRunningUrls(jobUuid string, urls *[]string) error {
+	rows, err := db.Query("select u.origin_url from url u "+
+	    " join task t on u.task_id = t.id join job j on t.job_uuid = j.uuid "+
+		"  where j.uuid = ? and t.status = ?", jobUuid, "Running")
+	if err != nil {
+		logger.Println("Error querying running tasks:", err)
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var url string
+		if err := rows.Scan(&url); err != nil {
+			logger.Println("Row scan error:", err)
+			continue
+		}
+		*urls = append(*urls, url)
 	}
 	return nil
 }

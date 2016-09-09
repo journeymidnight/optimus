@@ -19,13 +19,33 @@ function ajaxErrorHandler(data) {
     idle();
 }
 
-var result
-var ENTRIES_IN_PAGE=5
-function updateTable(data, page) {
-    var finishedSize = 0
+var result, displayResult
+var ENTRIES_IN_PAGE=50
+function displayOnePage(data, srcData) {
     var uSpeed = 0, dSpeed = 0;
     var table = [];
     var tpl = '<tr> <td>{{url}}</td> <td>{{size}}</td> <td>{{speed}}</td> <td>{{percentage}}</td> <td>{{status}}</td></tr>'
+
+    for (var i = 0; i < data.length; i++) {
+        var output = {}
+        output['url'] = data[i]['url']
+        output['size'] = data[i]['size']
+        output['speed'] = data[i]['speed']
+        output['percentage'] = data[i]['percentage']
+        if (srcData[i]['url'] == data[i]['url']) {
+            output['status'] = srcData[i]['status']
+        } else {
+            output['status'] = '----'
+        }
+        
+        table.push(Mustache.render(tpl, output))
+    }
+    $('#resultTable > tbody').html(table);
+}
+
+function updateTable(data, page) {
+    var finishedSize = 0
+    
     var start = (page - 1) * ENTRIES_IN_PAGE
     var end = page * ENTRIES_IN_PAGE
     if (end > data.length) {
@@ -37,56 +57,82 @@ function updateTable(data, page) {
         var totalPages = 0
         var value = currPage.toString() + ' / ' + totalPages.toString() 
         $("#jobPage").children("a:first").text(value)
+        $('#resultTable > tbody').html("");
     } else {
         $("#pagingDiv").removeClass('hide');
         var currPage = page
         var totalPages = Math.floor((data.length + ENTRIES_IN_PAGE - 1) / ENTRIES_IN_PAGE)
-
-        for (var i = 0; i < data.length; i++) {
-            if (data[i]['size'] == -1) {
-                data[i]['size'] = 'unknown'
-            }
-            if (data[i]['percentage'] == -1) {
-                data[i]['percentage'] = 'unknown'
-            }
-            if (i >= start && i < end) {
-                var output = Mustache.render(tpl, data[i])
-                table.push(output)
-            }
-            
-            if (data[i]['percentage'] == 100) {
-                finishedSize += data[i]['size']
-            } else if (data[i]['percentage'] > 50) {
-                uSpeed += data[i]['speed']
-            } else if (data[i]['percentage'] > 0) {
-                dSpeed += data[i]['speed']
-            }
-
-            console.log(data[i]['size'])
-            $('#resultTable > tbody').html(table);
-        }
         
+        var srcData = {}
+        var urls = "["
+        for (var i = start; i < end; i++) {
+            var url = {}
+            url['url'] = data[i]['url']
+            urls += JSON.stringify(url)
+            if (i + 1 != end) {
+                urls += ','
+            }
+            srcData[i - start] = data[i]
+        }
+        urls += ']'
+        var authHeader = getAuthHeader('POST', '/joburlsinfo', urls);
+        $.ajax({
+            url: '/joburlsinfo',
+            type: 'POST',
+            headers: authHeader,
+            data: urls,
+            success: function(data) {
+                displayOnePage(data, srcData)
+           },
+            error: ajaxErrorHandler
+        });
     }
 
     var value = currPage.toString() + ' / ' + totalPages.toString() 
     $("#jobPage").children("a:first").text(value)
+}
 
-    document.getElementById('uploadSpeed').innerHTML = uSpeed
-    document.getElementById('downloadSpeed').innerHTML = dSpeed
-    document.getElementById('finishedSize').innerHTML = finishedSize
+function saveUrls(data, finished, pending, failed) {
+    var entries = [];
+    if(finished && data['success-files']) {
+        data['success-files'].forEach(function(url) {
+            var entry = {}
+            entry['url'] = url
+            entry['status'] = "Finished"
+            entries.push(entry);
+        })
+    }
+    if(pending && data['queued-files']) {
+        data['queued-files'].forEach(function(url) {
+            var entry = {}
+            entry['url'] = url
+            entry['status'] = "Pending"
+            entries.push(entry);
+        })
+    }
+    if(failed && data['failed-files']) {
+        data['failed-files'].forEach(function(url) {
+            var entry = {}
+            entry['url'] = url
+            entry['status'] = "Failed"
+            entries.push(entry);
+        })
+    }
+    return entries
 }
 
 function queryAJob(uuid) {
     var jobId = uuid;
-
-    var authHeader = getAuthHeader('GET', '/jobdetail');
+    var urlsInfo
+    var authHeader = getAuthHeader('GET', '/status');
     $.ajax({
-        url: '/jobdetail?jobid=' + jobId,
+        url: '/status?jobid=' + jobId,
         type: 'GET',
         headers: authHeader,
         success: function(data) {
             result = data
-            updateTable(data, 1);
+            displayResult = saveUrls(result, true, true, true)
+            updateTable(displayResult, 1);
             $('#resultTable').removeClass('hide');
         },
         error: ajaxErrorHandler
@@ -117,8 +163,47 @@ function pagingClickEvent() {
     } else {
         return
     }
-    updateTable(result, page);
+    updateTable(displayResult, page);
     $("#jobPage").children("a:first").text(value)
+}
+
+function refreshStaticsDiv(){
+    var authHeader = getAuthHeader('GET', '/finishedsize');
+    $.ajax({
+        url: '/finishedsize',
+        type: 'GET',
+        headers: authHeader,
+        success: function(data) {
+            document.getElementById('finishedSize').innerHTML = data['finished-size']
+        },
+        error: ajaxErrorHandler
+    })
+    var authHeader = getAuthHeader('GET', '/currentspeed');
+    $.ajax({
+        url: '/currentspeed',
+        type: 'GET',
+        headers: authHeader,
+        success: function(data) {
+            document.getElementById('uploadSpeed').innerHTML = data['upload-speed']
+            document.getElementById('downloadSpeed').innerHTML = data['download-speed']
+        },
+        error: ajaxErrorHandler
+    })
+}
+
+function urlStatusChkBoxOnClick() {
+    var finished = false, pending = false, failed = false
+    if ($("#finishedChkBox").prop("checked")) {
+        finished = true
+    } 
+    if ($("#pendingChkBox").prop("checked")) {
+        pending = true
+    }
+    if ($("#failedChkbox").prop("checked")) {
+        failed = true
+    }
+    displayResult = saveUrls(result, finished, pending, failed)
+    updateTable(displayResult, 1);
 }
 
 function init() {
@@ -129,6 +214,13 @@ function init() {
         console.log(uuid)
         queryAJob(uuid)
     }
+
+    refreshStaticsDiv();
+    setInterval("refreshStaticsDiv();",10000);
+
+    $('#finishedChkBox').click(urlStatusChkBoxOnClick);
+    $('#pendingChkBox').click(urlStatusChkBoxOnClick);
+    $('#failedChkbox').click(urlStatusChkBoxOnClick);
 
     //setTimeout('window.location.reload()',2000)
 }

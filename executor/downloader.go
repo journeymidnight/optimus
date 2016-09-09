@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"errors"
 )
 
 const (
@@ -50,8 +51,14 @@ func NewFileDl(url string, file *os.File) (*FileDl, error) {
 		size = -1
 		contentType = ""
 	} else {
-		size = resp.ContentLength
-		contentType = resp.Header.Get("Content-Type")
+		if resp.StatusCode < 200 || resp.StatusCode > 299 {
+			fmt.Println("Error HEAD file: ", url, "with status", resp.StatusCode)
+			size = -1
+			contentType = ""
+		} else {
+			size = resp.ContentLength
+			contentType = resp.Header.Get("Content-Type")
+		}
 	}
 
 	f := &FileDl{
@@ -153,6 +160,10 @@ func (f *FileDl) downloadBlock(id int) error {
 	resp, err := http.DefaultClient.Do(request)
 	if err != nil {
 		return err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		fmt.Println("Error GET file: ", f.Url, "with status", resp.StatusCode)
+		return errors.New("Error GET Request")
 	}
 	if end == -1 {
 		f.ContentType = resp.Header.Get("Content-Type")

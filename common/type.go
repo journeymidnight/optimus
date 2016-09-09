@@ -23,6 +23,7 @@ type UrlUpdate struct {
 }
 
 type UrlInfo struct {
+	Url         string   `json:"url"`
 	Size        int64    `json:"size"`
 	Speed       int      `json:"speed"`
 	Percentage  int      `json:"percentage"`

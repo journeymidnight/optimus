@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 	"strconv"
+	"github.com/garyburd/redigo/redis"
+	"git.letv.cn/optimus/optimus/common"
 )
 
 func response(w http.ResponseWriter, statusCode int, message string) {
@@ -81,6 +83,10 @@ type TransferResponse struct {
 	JobId string `json:"jobid"`
 }
 
+type UrlReq struct {
+	Url   string `json:"url"`
+}
+
 func putTransferJobHandler(w http.ResponseWriter, r *http.Request) {
 	if strings.ToUpper(r.Method) != "PUT" {
 		w.Header().Set("Allow", "PUT")
@@ -127,6 +133,11 @@ func putTransferJobHandler(w http.ResponseWriter, r *http.Request) {
 			response(w, http.StatusBadRequest, "Missing required field")
 			return
 		}
+	}
+	length := len(req.OriginUrls)
+	if (length > 10000) {
+		response(w, http.StatusBadRequest, "Too many urls! The maximum number of urls are 10000")
+		return
 	}
 
 	query := r.URL.Query()
@@ -362,37 +373,59 @@ func putUserSchedule(w http.ResponseWriter, r *http.Request) {
 	response(w, http.StatusOK, "")
 }
 
-func getJobDetail(w http.ResponseWriter, r *http.Request) {
-	if strings.ToUpper(r.Method) != "GET" {
+func getUrlsInfo(w http.ResponseWriter, r *http.Request) {
+	if strings.ToUpper(r.Method) != "POST" {
 		w.Header().Set("Allow", "GET")
 		response(w, http.StatusMethodNotAllowed, "Only GET method is allowed")
 		return
 	}
+	logger.Println("ssssssssssssssssss")
 	requestBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		response(w, http.StatusBadRequest, "Failed to read request body")
 		return
 	}
-	accessKey, verified := verifyRequest(r, requestBody)
+	_, verified := verifyRequest(r, requestBody)
 	if !verified {
 		response(w, http.StatusUnauthorized, "Failed to authenticate request")
 		return
 	}
-	jobUuid := r.URL.Query().Get("jobid")
-	if jobUuid == "" {
-		response(w, http.StatusBadRequest, "Missing parameter jobid")
-		return
-	}
-	if !userOwnsJob(accessKey, jobUuid) {
-		response(w, http.StatusForbidden, "Your key has no access to job "+jobUuid)
-		return
-	}
-	var result []JobUrlResult
-	err = getJobUrlDetail(jobUuid, &result)
+	var urls []UrlReq
+	err = json.NewDecoder(bytes.NewReader(requestBody)).Decode(&urls)
 	if err != nil {
-		response(w, http.StatusInternalServerError, "Cannot get url detail")
+		response(w, http.StatusBadRequest, "Bad JSON body")
 		return
 	}
+
+	for _, url := range urls {
+		logger.Println("url", url.Url)
+	}
+
+	if CONFIG.RedisAddress == nil || CONFIG.RedisMasterName == "" {
+		response(w, http.StatusBadRequest, "There is no Redis to Connect!")
+		return
+	}
+	pool := newSentinelPool(CONFIG.RedisAddress, CONFIG.RedisMasterName)
+	defer pool.Close()
+
+	conn := pool.Get()
+	defer conn.Close()
+	var result []common.UrlInfo
+	for _, url := range urls {
+		var urlInfo common.UrlInfo
+		value, err := redis.Bytes(conn.Do("GET", url.Url))
+		if err != nil {
+			logger.Println("Error getting value from redis! key", url)
+		} else {
+			err = json.Unmarshal(value, &urlInfo)
+			if err != nil {
+				logger.Println("Error Unmarshal json value! key", url)
+			}
+			urlInfo.Url = url.Url
+		}
+		result = append(result, urlInfo)
+	}
+
 	jsonResult, err := json.Marshal(result)
 	if err != nil {
 		response(w, http.StatusInternalServerError, "Cannot get url detail")
@@ -496,6 +529,15 @@ func getCurrSpeed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if CONFIG.RedisAddress == nil || CONFIG.RedisMasterName == "" {
+		response(w, http.StatusBadRequest, "There is no Redis to Connect!")
+		return
+	}
+	pool := newSentinelPool(CONFIG.RedisAddress, CONFIG.RedisMasterName)
+	defer pool.Close()
+	conn := pool.Get()
+	defer conn.Close()
+
 	var jobUuids []string
 	err = queryScheduledJobUuids(accessKey, &jobUuids)
 	if err != nil {
@@ -505,13 +547,24 @@ func getCurrSpeed(w http.ResponseWriter, r *http.Request) {
 
 	var uSpeed, dSpeed, finishedSize int64
 	for _, uuid := range jobUuids {
-		var result []JobUrlResult
-		err = getJobUrlDetail(uuid, &result)
+		var urls []string
+		err = queryRunningUrls(uuid, &urls)
 		if err != nil {
-			response(w, http.StatusInternalServerError, "Cannot get url detail")
+			response(w, http.StatusInternalServerError, "Cannot get running urls")
 			return
 		}
-		for _, urlInfo := range result {
+
+		for _, url := range urls {
+			var urlInfo common.UrlInfo
+			value, err := redis.Bytes(conn.Do("GET", url))
+			if err != nil {
+				logger.Println("Error getting value from redis! key", url)
+			} else {
+				err = json.Unmarshal(value, &urlInfo)
+				if err != nil {
+					logger.Println("Error Unmarshal json value! key", url)
+				}
+			}
 			if urlInfo.Percentage == 100 {
 				finishedSize += int64(urlInfo.Size)
 			} else if urlInfo.Percentage > 50 {
@@ -537,7 +590,7 @@ func startApiServer() {
 	http.HandleFunc("/suspendjob", postSuspendJobHandler)
 	http.HandleFunc("/resumejob", postResumeJobHandler)
 	http.HandleFunc("/schedule", putUserSchedule)
-	http.HandleFunc("/jobdetail", getJobDetail)
+	http.HandleFunc("/joburlsinfo", getUrlsInfo)
 	http.HandleFunc("/joblist", getJobList)
 	http.HandleFunc("/finishedsize", getFinishedSize)
 	http.HandleFunc("/currentspeed", getCurrSpeed)
