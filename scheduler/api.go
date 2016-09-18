@@ -379,7 +379,6 @@ func getUrlsInfo(w http.ResponseWriter, r *http.Request) {
 		response(w, http.StatusMethodNotAllowed, "Only GET method is allowed")
 		return
 	}
-	logger.Println("ssssssssssssssssss")
 	requestBody, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		response(w, http.StatusBadRequest, "Failed to read request body")
@@ -395,10 +394,6 @@ func getUrlsInfo(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		response(w, http.StatusBadRequest, "Bad JSON body")
 		return
-	}
-
-	for _, url := range urls {
-		logger.Println("url", url.Url)
 	}
 
 	if CONFIG.RedisAddress == nil || CONFIG.RedisMasterName == "" {

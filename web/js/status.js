@@ -90,6 +90,29 @@ function updateTable(data, page) {
 
     var value = currPage.toString() + ' / ' + totalPages.toString() 
     $("#jobPage").children("a:first").text(value)
+
+    var pendingUrls, finishedUrls, failedUrls, totalUrls
+    if (result['failed-files'] == null) {
+        failedUrls = 0
+    } else {
+        failedUrls = result['failed-files'].length
+    }
+    if (result['queued-files'] == null) {
+        pendingUrls = 0
+    } else {
+        pendingUrls = result['queued-files'].length
+    }
+    if (result['success-files'] == null) {
+        finishedUrls = 0
+    } else {
+        finishedUrls = result['success-files'].length
+    }
+    totalUrls = finishedUrls + pendingUrls + failedUrls
+
+    document.getElementById('totalUrls').innerHTML = totalUrls.toString()
+    document.getElementById('pendingUrls').innerHTML = pendingUrls.toString()
+    document.getElementById('finishedUrls').innerHTML = finishedUrls.toString()
+    document.getElementById('failedUrls').innerHTML = failedUrls.toString()
 }
 
 function saveUrls(data, finished, pending, failed) {
