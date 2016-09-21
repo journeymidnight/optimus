@@ -33,6 +33,7 @@
     <script type="text/javascript" src="js/md5-min.js"></script>
     <script type="text/javascript" src="js/status.js"></script>
     <script type="text/javascript" src="js/mustache.js"></script>
+    <script type="text/javascript" src="js/FileSaver.js"></script>
     <div class="container-fluid">
         <div class="col-md-2">
             <div class="well">
@@ -85,6 +86,11 @@
                         <input type="checkbox" checked="checked" value="" id="pendingChkBox">Pending</label>
                     <label class="checkbox-inline">
                         <input type="checkbox" checked="checked" value="" id="failedChkbox">Failed</label>
+                </div>
+                <div class="col-md-1 filename">
+                    <label>
+                        <input type="submit" value="Export" id="export">
+                    </label>
                 </div>
             </div>
             <div class="container-fluid table-margin">

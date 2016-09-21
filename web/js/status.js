@@ -229,6 +229,23 @@ function urlStatusChkBoxOnClick() {
     updateTable(displayResult, 1);
 }
 
+function saveAsFile() {
+    var content = ""
+    if (displayResult.length == 0) {
+        content = "NULL"
+    } else {
+        for (var i = 0; i < displayResult.length; i++) {
+            content += displayResult[i]['url']
+            if (i + 1 != displayResult.length) {
+                content += "\n"
+            }
+        }
+    }
+
+    var blob = new Blob([content], {type: "text/plain;charset=utf-8"});
+    saveAs(blob, "urls.txt", true);
+}
+
 function init() {
     $('#pagingUl').on('click','li', pagingClickEvent);
 
@@ -244,6 +261,7 @@ function init() {
     $('#finishedChkBox').click(urlStatusChkBoxOnClick);
     $('#pendingChkBox').click(urlStatusChkBoxOnClick);
     $('#failedChkbox').click(urlStatusChkBoxOnClick);
+    $('#export').click(saveAsFile);
 
     //setTimeout('window.location.reload()',2000)
 }
