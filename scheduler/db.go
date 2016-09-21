@@ -21,23 +21,23 @@ func createDbConnection() *sql.DB {
 	return conn
 }
 
-func insertJob(req *TransferRequest, status string) (err error) {
+func insertJob(req *TransferRequest) (err error) {
 	_, err = db.Exec("insert job set id = 0, uuid = ?, create_time = NOW(), "+
-		"callback_url = ?, callback_token = ?, access_key = ?, status = ?, priority = ?",
-		req.uuid, req.callbackUrl, req.callbackToken, req.accessKey, status, req.priority)
+		"callback_url = ?, callback_token = ?, access_key = ?, status = ?",
+		req.uuid, req.callbackUrl, req.callbackToken, req.accessKey, "Pending")
 	return err
 }
 
-func insertTasks(tasks []*common.TransferTask, priority int) error {
+func insertTasks(tasks []*common.TransferTask) error {
 	for _, task := range tasks {
 		tx, err := db.Begin()
 		if err != nil {
 			return err
 		}
 		result, err := tx.Exec(
-			"insert into task(id, job_uuid, target_type, target_bucket, target_acl, status, access_key, secret_key, priority) "+
+			"insert into task(id, uid, job_uuid, target_type, target_bucket, target_acl, status, access_key, secret_key) "+
 				"values(?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			0, task.JobUuid, task.TargetType, task.TargetBucket, task.TargetAcl, task.Status, task.AccessKey, task.SecretKey, priority)
+			0, task.UId, task.JobUuid, task.TargetType, task.TargetBucket, task.TargetAcl, task.Status, task.AccessKey, task.SecretKey)
 		if err != nil {
 			tx.Rollback()
 			return err
@@ -91,10 +91,29 @@ func getIdleExecutorsOnSlave(tx *sql.Tx, slaveUuid string) (executors []*Executo
 	return
 }
 
-func getPendingTasks(tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
+func getNextUserPendingTasks(tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
+	for {
+		ak, err := getNextUser()
+		if err != nil {
+			logger.Println("Error get next user: ", err)
+		}
+		if ak == "" {
+			break
+		}
+		tasks = getPendingTasks(ak, tx, limit)
+		if len(tasks) == 0 {
+			removeSchedUser(ak)
+		} else {
+			return
+		}
+	}
+	return
+}
+
+func getPendingTasks(uid string, tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
 	taskRows, err := tx.Query(
 		"select id, job_uuid, target_type, target_bucket, target_acl, access_key, secret_key from task "+
-			"where status = ? order by priority limit ? for update", "Pending", limit)
+			"where uid = ? and status = ? limit ? for update", uid, "Pending", limit)
 	if err != nil {
 		logger.Println("Error querying pending tasks: ", err)
 		return
@@ -466,56 +485,22 @@ func resumeJob(jobUuid string) error {
 	return nil
 }
 
-func getScheduleEntries(entries map[string][]Span) error {
-	rows, err := db.Query("select access_key, start, end from schedule")
+func getUserTimeSpans(ak string, spans *[]Span) error {
+	rows, err := db.Query("select start, end from schedule where access_key = ?", ak)
 	if err != nil {
 		logger.Println("Error querying table schedule:", err)
 		return err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var accessKey string
 		var span Span
-		if err := rows.Scan(&accessKey, &span.Start, &span.End); err != nil {
+		if err := rows.Scan(&span.Start, &span.End); err != nil {
 			logger.Println("Row scan error:", err)
 			continue
 		}
-		_, ok := entries[accessKey]
-		if !ok {
-			var spans []Span
-			spans = append(spans, span)
-			entries[accessKey] = spans
-		} else {
-			spans := entries[accessKey]
-			spans = append(spans, span)
-			entries[accessKey] = spans
-		}
+		*spans = append(*spans, span)
 	}
 	return nil
-}
-
-func getRequestedJobs(accessKey string, requestedJobs *[]JobEntry, status string) (count int64, err error) {
-	sql := "select uuid, status from job where access_key = " + "\"" + accessKey + "\""
-	if status != "" {
-		sql += " and status = " + "\"" + status + "\""
-	}
-	rows, err := db.Query(sql)
-	if err != nil {
-		logger.Println("Error querying job url status: ", err)
-		return 0, nil
-	}
-	defer rows.Close()
-	count = 0
-	for rows.Next() {
-		var jobEntry JobEntry
-		if err := rows.Scan(&jobEntry.JobUuid, &jobEntry.Status); err != nil {
-			logger.Println("Row scan error: ", err)
-			continue
-		}
-		*requestedJobs = append(*requestedJobs, jobEntry)
-		count += 1
-	}
-	return count, nil
 }
 
 func delAndInsertScheTable(accessKey string, spans []Span) error {
@@ -657,6 +642,36 @@ func queryRunningUrls(jobUuid string, urls *[]string) error {
 		*urls = append(*urls, url)
 	}
 	return nil
+}
+
+func getPendingUsers(aks *[]string) error {
+	rows, err := db.Query("select distinct(access_key) from job "+
+	"  where status = ?", "Pending")
+	if err != nil {
+		logger.Println("Error querying distinct access key:", err)
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ak string
+		if err := rows.Scan(&ak); err != nil {
+			logger.Println("Row scan error:", err)
+			continue
+		}
+		*aks = append(*aks, ak)
+	}
+	return nil
+}
+
+func getUserPriority(ak string) (int, error) {
+	priority := 0
+	err := db.QueryRow("select priority from user where "+
+	"access_key = ?", ak).Scan(&priority)
+	if err != nil {
+		logger.Println("Error querying finished task number: ", err)
+		return 0, err
+	}
+	return priority, nil
 }
 
 func clearExecutors() {

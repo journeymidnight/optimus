@@ -1,2 +1,2 @@
 all:
-	go build scheduler.go schedule.go api.go db.go main.go util.go
+	go build scheduler.go usersched.go api.go db.go main.go util.go

@@ -2,6 +2,7 @@ package common
 
 type TransferTask struct {
 	Id           int64    `json:"id"`
+	UId          string   `json:"uid"`
 	JobUuid      string   `json:"jobUuid"`
 	OriginUrls   []string `json:"originUrls"`
 	TargetType   string   `json:"targetType"`

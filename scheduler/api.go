@@ -76,7 +76,6 @@ type TransferRequest struct {
 	uuid          string
 	callbackToken string
 	callbackUrl   string
-	priority      int
 }
 
 type TransferResponse struct {
@@ -103,21 +102,7 @@ func putTransferJobHandler(w http.ResponseWriter, r *http.Request) {
 		response(w, http.StatusUnauthorized, "Failed to authenticate request")
 		return
 	}
-	var priority int64
-	priStr := r.URL.Query().Get("priority")
-	if priStr == "" {
-		priority = 16
-	} else {
-		priority, err = strconv.ParseInt(priStr, 10, 32)
-		if err != nil {
-			priority = 16
-		}
-	}
-	if priority > 16 || priority < 0 {
-		priority = 16
-	}
 	var req TransferRequest
-	req.priority = int(priority)
 	req.accessKey = accessKey
 	err = json.NewDecoder(bytes.NewReader(requestBody)).Decode(&req)
 	if err != nil {
@@ -320,6 +305,11 @@ func postResumeJobHandler(w http.ResponseWriter, r *http.Request) {
 		response(w, http.StatusInternalServerError, "Cannot resume job")
 		return
 	}
+	err = chkAndAddSchedUser(accessKey)
+	if err != nil {
+		response(w, http.StatusInternalServerError, "Failed to Check User and resched user")
+		return
+	}
 	response(w, http.StatusOK, string(""))
 }
 
@@ -350,6 +340,22 @@ func putUserSchedule(w http.ResponseWriter, r *http.Request) {
 		response(w, http.StatusBadRequest, "Maximum number of entries are 5")
 		return
 	}
+	if length == 0 {
+		response(w, http.StatusBadRequest, "There is no time span entries")
+		return
+	}
+	if spans[0].Start == 0 && spans[0].End == 0 {
+		var tmp []Span
+		err = updateScheduleEntry(accessKey, tmp)
+		if err != nil {
+			response(w, http.StatusBadRequest, "Cannot set schedule table")
+			return
+		}
+
+		response(w, http.StatusOK, "")
+		return
+	}
+
 	for i := 0; i < length; i++ {
 		if spans[i].Start >= spans[i].End {
 			response(w, http.StatusBadRequest, "The start time is greater than end time")

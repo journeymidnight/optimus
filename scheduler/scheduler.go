@@ -154,7 +154,7 @@ func (scheduler *Scheduler) ResourceOffers(driver scheduler.SchedulerDriver,
 		}
 		idleExecutors := getIdleExecutorsOnSlave(tx, offer.SlaveId.GetValue())
 		slaveCapacity := Min(executorCapacity+len(idleExecutors), taskCapacity)
-		pendingTasks := getPendingTasks(tx, slaveCapacity)
+		pendingTasks := getNextUserPendingTasks(tx, slaveCapacity)
 
 		executorCursor := 0
 		tasks := []*mesosproto.TaskInfo{}

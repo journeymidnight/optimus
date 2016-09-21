@@ -133,18 +133,7 @@ func signalListen() {
 func requestHandler() {
 	for {
 		request := <-requestBuffer
-		hit, err := getUserHitInfo(request.accessKey)
-		if err != nil {
-			logger.Println("Error getting user hit info: ", request.accessKey, "with error: ", err)
-			continue
-		}
-		var status string
-		if hit {
-			status = "Pending"
-		} else {
-			status = "Suspended"
-		}
-		err = insertJob(&request, status)
+		err := insertJob(&request)
 		if err != nil {
 			logger.Println("Error inserting request: ", request, "with error: ", err)
 			continue
@@ -161,11 +150,12 @@ func requestHandler() {
 		length := len(request.OriginUrls)
 		for {
 			t := common.TransferTask{
+				UId:          request.accessKey,
 				JobUuid:      request.uuid,
 				TargetType:   request.TargetType,
 				TargetBucket: request.TargetBucket,
 				TargetAcl:    request.TargetAcl,
-				Status:       status,
+				Status:       "Pending",
 				AccessKey:    accessKey,
 				SecretKey:    secretKey,
 			}
@@ -179,9 +169,14 @@ func requestHandler() {
 				break
 			}
 		}
-		err = insertTasks(tasks, request.priority)
+		err = insertTasks(tasks)
 		if err != nil {
 			logger.Println("Error inserting tasks: ", tasks, "with error: ", err)
+			continue
+		}
+		err = chkAndAddSchedUser(request.accessKey)
+		if err != nil {
+			logger.Println("Error checking and adding user to sched list: ", err)
 			continue
 		}
 	}
@@ -237,7 +232,7 @@ func main() {
 	defer db.Close()
 	clearExecutors()
 	clearRunningTask()
-	initUserSchedule()
+	initScheduledUsers()
 	cluster = make(map[string]string)
 	err = initS3ClusterAddr(cluster)
 	if err != nil {
@@ -250,8 +245,6 @@ func main() {
 	go startApiServer()
 
 	go rescheduler()
-
-	go processScheduleEvent()
 
 	go signalListen()
 
