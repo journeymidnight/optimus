@@ -153,7 +153,6 @@ type JobResult struct {
 	SuccessUrls   []string `json:"success-files"`
 	FailedUrls    []string `json:"failed-files"`
 	PendingUrls   []string `json:"queued-files"`
-	SuspendedUrls []string `json:"suspended-files"`
 }
 
 type JobUrlResult struct {

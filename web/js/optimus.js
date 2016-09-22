@@ -342,7 +342,7 @@ function init() {
     });
 
     refreshStaticsDiv();
-    setInterval("refreshStaticsDiv();",10000);
+    setInterval("refreshStaticsDiv();",3000);
 
     $('#pagingUl').on('click','li', pagingClickEvent);
 

@@ -14,6 +14,7 @@ CREATE TABLE user (
   vass_ak VARCHAR(50) DEFAULT NULL,
   vass_sk VARCHAR(50) DEFAULT NULL,
   description VARCHAR(50) DEFAULT NULL,
+  priority INT DEFAULT 9,
   PRIMARY KEY (id),
   INDEX (access_key)
 );
@@ -30,7 +31,7 @@ CREATE TABLE job (
   status VARCHAR(20) NOT NULL,
   PRIMARY KEY (id),
   INDEX (uuid),
-  FOREIGN KEY (access_key) REFERENCES user(access_key)
+  INDEX (access_key, status)
 );
 
 DROP TABLE IF EXISTS slave;
@@ -52,13 +53,13 @@ CREATE TABLE executor (
   status VARCHAR(20) NOT NULL,
   PRIMARY KEY (id),
   INDEX (uuid),
-  INDEX (slave_uuid),
-  FOREIGN KEY (slave_uuid) REFERENCES slave(uuid)
+  INDEX (slave_uuid)
 );
 
 DROP TABLE IF EXISTS task;
 CREATE TABLE task (
   id BIGINT NOT NULL AUTO_INCREMENT,
+  uid VARCHAR(50) NOT NULL,
   job_uuid CHAR(60) NOT NULL,
   executor_uuid CHAR(60),
   target_type VARCHAR(20) NOT NULL,
@@ -71,9 +72,7 @@ CREATE TABLE task (
   PRIMARY KEY (id),
   INDEX (job_uuid),
   INDEX (executor_uuid),
-  INDEX (status),
-  FOREIGN KEY (job_uuid) REFERENCES job(uuid),
-  FOREIGN KEY (executor_uuid) REFERENCES executor(uuid)
+  INDEX (uid, status)
 );
 
 DROP TABLE IF EXISTS url;
@@ -84,8 +83,7 @@ CREATE TABLE url (
   target_url TEXT,
   status VARCHAR(20) NOT NULL,
   PRIMARY KEY (id),
-  INDEX (task_id),
-  FOREIGN KEY (task_id) REFERENCES task(id)
+  INDEX (task_id)
 );
 
 DROP TABLE IF EXISTS schedule;

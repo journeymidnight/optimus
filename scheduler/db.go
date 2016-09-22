@@ -243,8 +243,6 @@ func getJobSummary(jobUuid string) (summary JobResult, err error) {
 			summary.FailedUrls = append(summary.FailedUrls, url)
 		case "Pending":
 			summary.PendingUrls = append(summary.PendingUrls, url)
-		case "Suspended":
-			summary.SuspendedUrls = append(summary.SuspendedUrls, url)
 		}
 	}
 	return summary, nil
@@ -464,9 +462,9 @@ func rescheduleTasks(tasks []*scheduledTask) {
 }
 
 func suspendJob(jobUuid string) error {
-	_, err := db.Exec("update url u join task t on u.task_id = t.id join job j on t.job_uuid = j.uuid "+
-		"set u.status = ?, t.status = ?, j.status = ? "+
-		"where j.uuid = ? and t.status = ?", "Suspended", "Suspended", "Suspended", jobUuid, "Pending")
+	_, err := db.Exec("update task t join job j on t.job_uuid = j.uuid "+
+		"set t.status = ?, j.status = ? "+
+		"where j.uuid = ? and t.status = ?", "Suspended", "Suspended", jobUuid, "Pending")
 	if err != nil {
 		logger.Println("Error suspending for job! uuid ", jobUuid, "with error ", err)
 		return err
@@ -475,9 +473,9 @@ func suspendJob(jobUuid string) error {
 }
 
 func resumeJob(jobUuid string) error {
-	_, err := db.Exec("update url u join task t on u.task_id = t.id join job j on t.job_uuid = j.uuid "+
-		"set u.status = ?, t.status = ?, j.status = ? "+
-		"where j.uuid = ? and t.status = ?", "Pending", "Pending", "Pending", jobUuid, "Suspended")
+	_, err := db.Exec("update task t join job j on t.job_uuid = j.uuid "+
+		"set t.status = ?, j.status = ? "+
+		"where j.uuid = ? and t.status = ?", "Pending", "Pending", jobUuid, "Suspended")
 	if err != nil {
 		logger.Println("Error resuming for job! uuid ", jobUuid, "with error ", err)
 		return err
