@@ -91,25 +91,6 @@ func getIdleExecutorsOnSlave(tx *sql.Tx, slaveUuid string) (executors []*Executo
 	return
 }
 
-func getNextUserPendingTasks(tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
-	for {
-		ak, err := getNextUser()
-		if err != nil {
-			logger.Println("Error get next user: ", err)
-		}
-		if ak == "" {
-			break
-		}
-		tasks = getPendingTasks(ak, tx, limit)
-		if len(tasks) == 0 {
-			removeSchedUser(ak)
-		} else {
-			return
-		}
-	}
-	return
-}
-
 func getPendingTasks(uid string, tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
 	taskRows, err := tx.Query(
 		"select id, job_uuid, target_type, target_bucket, target_acl, access_key, secret_key from task "+
@@ -644,7 +625,7 @@ func queryRunningUrls(jobUuid string, urls *[]string) error {
 
 func getPendingUsers(aks *[]string) error {
 	rows, err := db.Query("select distinct(access_key) from job "+
-	"  where status = ?", "Pending")
+	"  where status = ? or status = ?", "Pending", "Scheduled")
 	if err != nil {
 		logger.Println("Error querying distinct access key:", err)
 		return err

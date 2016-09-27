@@ -584,6 +584,33 @@ func getCurrSpeed(w http.ResponseWriter, r *http.Request) {
 	response(w, http.StatusOK, string(jsonResult))
 }
 
+func setMaxSpeed(w http.ResponseWriter, r *http.Request) {
+	if strings.ToUpper(r.Method) != "POST" {
+		w.Header().Set("Allow", "POST")
+		response(w, http.StatusMethodNotAllowed, "Only POST method is allowed")
+		return
+	}
+	requestBody, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		response(w, http.StatusBadRequest, "Failed to read request body")
+		return
+	}
+	accessKey, verified := verifyRequest(r, requestBody)
+	if !verified {
+		response(w, http.StatusUnauthorized, "Failed to authenticate request")
+		return
+	}
+
+	maxSpeedStr := r.URL.Query().Get("maxspeed")
+	if maxSpeedStr == "" {
+		response(w, http.StatusBadRequest, "Missing parameter maxspeed")
+		return
+	}
+	maxSpeed, _ := strconv.ParseInt(maxSpeedStr, 10, 64)
+	userMaxSpeed[accessKey] = maxSpeed
+	response(w, http.StatusOK, string(""))
+}
+
 func startApiServer() {
 	http.HandleFunc("/transferjob", putTransferJobHandler)
 	http.HandleFunc("/status", getJobStatusHandler)
@@ -594,6 +621,7 @@ func startApiServer() {
 	http.HandleFunc("/joblist", getJobList)
 	http.HandleFunc("/finishedsize", getFinishedSize)
 	http.HandleFunc("/currentspeed", getCurrSpeed)
+	http.HandleFunc("/setmaxspeed", setMaxSpeed)
 	http.Handle("/", http.FileServer(http.Dir(CONFIG.WebRoot)))
 	logger.Println("Starting API server...")
 	err := http.ListenAndServe(CONFIG.ApiBindAddress, nil)

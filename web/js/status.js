@@ -190,30 +190,6 @@ function pagingClickEvent() {
     $("#jobPage").children("a:first").text(value)
 }
 
-function refreshStaticsDiv(){
-    var authHeader = getAuthHeader('GET', '/finishedsize');
-    $.ajax({
-        url: '/finishedsize',
-        type: 'GET',
-        headers: authHeader,
-        success: function(data) {
-            document.getElementById('finishedSize').innerHTML = data['finished-size']
-        },
-        error: ajaxErrorHandler
-    })
-    var authHeader = getAuthHeader('GET', '/currentspeed');
-    $.ajax({
-        url: '/currentspeed',
-        type: 'GET',
-        headers: authHeader,
-        success: function(data) {
-            document.getElementById('uploadSpeed').innerHTML = data['upload-speed']
-            document.getElementById('downloadSpeed').innerHTML = data['download-speed']
-        },
-        error: ajaxErrorHandler
-    })
-}
-
 function urlStatusChkBoxOnClick() {
     var finished = false, pending = false, failed = false
     if ($("#finishedChkBox").prop("checked")) {
@@ -254,9 +230,6 @@ function init() {
         console.log(uuid)
         queryAJob(uuid)
     }
-
-    refreshStaticsDiv();
-    setInterval("refreshStaticsDiv();",10000);
 
     $('#finishedChkBox').click(urlStatusChkBoxOnClick);
     $('#pendingChkBox').click(urlStatusChkBoxOnClick);

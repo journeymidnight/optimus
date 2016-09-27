@@ -26,6 +26,7 @@ var (
 	pool          *redis.Pool
 	requestBuffer chan TransferRequest
 	cluster       map[string]string
+	userMaxSpeed  map[string]int64
 )
 
 type Config struct {
@@ -234,6 +235,7 @@ func main() {
 	clearRunningTask()
 	initScheduledUsers()
 	cluster = make(map[string]string)
+	userMaxSpeed = make(map[string]int64)
 	err = initS3ClusterAddr(cluster)
 	if err != nil {
 		panic("Error init s3 cluster address: err" + err.Error())

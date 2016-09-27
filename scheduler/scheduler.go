@@ -10,14 +10,26 @@ import (
 	"strconv"
 
 	"git.letv.cn/optimus/optimus/common"
+	"github.com/garyburd/redigo/redis"
+	"database/sql"
 )
+
+const MAX_TASK_NUMBER = 1000
+
+type TaskIns  struct {
+	Id           int64
+	UId          string
+	Status       string   //Queued, Running, Exited
+	Urls         []string
+}
 
 type Scheduler struct { // implements scheduler.Scheduler interface
 	// TODO: more instance variables
+	taskIns    map[string][]*TaskIns
 }
 
 func newScheduler() *Scheduler {
-	return &Scheduler{}
+	return &Scheduler{taskIns: make(map[string][]*TaskIns)}
 }
 
 func (scheduler *Scheduler) Registered(driver scheduler.SchedulerDriver,
@@ -120,6 +132,116 @@ func newTaskAndExecutor(task *common.TransferTask,
 	return newTask(task, newUuid(), slaveId)
 }
 
+func reCalculateLimit(scheduler *Scheduler, ak string) (limit int, err error){
+	pool := newSentinelPool(CONFIG.RedisAddress, CONFIG.RedisMasterName)
+	defer pool.Close()
+	conn := pool.Get()
+	defer conn.Close()
+
+	var totalSpeed, avgSpeed int64
+	var running, queued int
+	var chkedTaskIns []*TaskIns
+	if taskIns, ok := scheduler.taskIns[ak]; ok {
+		for _, task := range taskIns {
+			if task.Status == "Exited" {
+				continue
+			}
+			chkedTaskIns = append(chkedTaskIns, task)
+			if task.Status == "Queued" {
+				queued++
+				continue
+			}
+			for _, url := range task.Urls {
+				var urlInfo common.UrlInfo
+				value, err := redis.Bytes(conn.Do("GET", url))
+				if err != nil {
+					continue
+				} else {
+					err = json.Unmarshal(value, &urlInfo)
+					if err != nil {
+						logger.Println("Error Unmarshal json value! key", url)
+					}
+				}
+				if (urlInfo.Percentage == -1) || (urlInfo.Percentage > 0 && urlInfo.Percentage < 50)  {
+					totalSpeed += int64(urlInfo.Speed)
+				}
+			}
+			running++
+		}
+		//logger.Println("totalSpeed:", totalSpeed, "userMaxSpeed[ak]", userMaxSpeed[ak], "running", running)
+
+		scheduler.taskIns[ak] = chkedTaskIns
+		if totalSpeed < userMaxSpeed[ak] {
+			if running == 0 {
+				limit = MAX_TASK_NUMBER
+				return
+			}
+			avgSpeed = totalSpeed / int64(running)
+			if avgSpeed == 0 {
+				limit = MAX_TASK_NUMBER
+				return
+			}
+			limit = int((userMaxSpeed[ak] - totalSpeed) / avgSpeed)
+			if limit > queued {
+				limit = limit - queued
+			} else {
+				limit = 0
+			}
+		}
+	} else {
+		limit = MAX_TASK_NUMBER
+	}
+	return
+}
+
+func addTaskIns(scheduler *Scheduler, ak string, tasks []*common.TransferTask) {
+	for _, task := range tasks {
+		scheduler.taskIns[ak] = append(scheduler.taskIns[ak], &TaskIns{Id: task.Id,
+			                                                          UId: task.UId,
+			                                                          Status: "Queued",
+			                                                          Urls: task.OriginUrls})
+	}
+}
+
+func getNextUserPendingTasks(scheduler *Scheduler, tx *sql.Tx, limit int) (tasks []*common.TransferTask) {
+	if limit == 0 {
+		return
+	}
+	for {
+		ak, err := getNextUser()
+		if err != nil {
+			logger.Println("Error get next user: ", err)
+		}
+		if ak == "" {
+			break
+		}
+		if _, ok := userMaxSpeed[ak]; ok {
+			calcLimit, err := reCalculateLimit(scheduler, ak)
+			if err != nil {
+				logger.Println("Error calculating limit: ", err)
+			}
+			//logger.Println("reCalculateLimit:", calcLimit)
+			if calcLimit == 0 {
+				return
+			}
+			if calcLimit < limit {
+				limit = calcLimit
+			}
+		}
+
+		tasks = getPendingTasks(ak, tx, limit)
+		if len(tasks) == 0 {
+			removeSchedUser(ak)
+		} else {
+			if _, ok := userMaxSpeed[ak]; ok {
+				addTaskIns(scheduler, ak, tasks)
+			}
+			return
+		}
+	}
+	return
+}
+
 func (scheduler *Scheduler) ResourceOffers(driver scheduler.SchedulerDriver,
 	offers []*mesosproto.Offer) {
 	for _, offer := range offers {
@@ -154,7 +276,7 @@ func (scheduler *Scheduler) ResourceOffers(driver scheduler.SchedulerDriver,
 		}
 		idleExecutors := getIdleExecutorsOnSlave(tx, offer.SlaveId.GetValue())
 		slaveCapacity := Min(executorCapacity+len(idleExecutors), taskCapacity)
-		pendingTasks := getNextUserPendingTasks(tx, slaveCapacity)
+		pendingTasks := getNextUserPendingTasks(scheduler, tx, slaveCapacity)
 
 		executorCursor := 0
 		tasks := []*mesosproto.TaskInfo{}
@@ -187,17 +309,33 @@ func (scheduler *Scheduler) OfferRescinded(driver scheduler.SchedulerDriver,
 	// TODO: track tasks
 }
 
+func updateTaskIns(scheduler *Scheduler, taskId string, status string) {
+	taskIdInt, _ := strconv.ParseInt(taskId, 10, 64)
+	for _, taskIns := range scheduler.taskIns {
+		for _, task := range taskIns {
+			if task.Id == taskIdInt {
+				task.Status = status
+				return
+			}
+		}
+	}
+}
+
 func (scheduler *Scheduler) StatusUpdate(driver scheduler.SchedulerDriver,
 	taskStatus *mesosproto.TaskStatus) {
 	switch *taskStatus.State {
 	case mesosproto.TaskState_TASK_RUNNING:
+		updateTaskIns(scheduler, taskStatus.TaskId.GetValue(), "Running")
 		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Running")
 	case mesosproto.TaskState_TASK_ERROR, mesosproto.TaskState_TASK_FAILED:
+		updateTaskIns(scheduler, taskStatus.TaskId.GetValue(), "Exited")
 		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Failed")
 		tryFinishJob(taskStatus.TaskId.GetValue())
 	case mesosproto.TaskState_TASK_LOST:
+		updateTaskIns(scheduler, taskStatus.TaskId.GetValue(), "Exited")
 		taskLostUpdate(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue())
 	case mesosproto.TaskState_TASK_FINISHED:
+		updateTaskIns(scheduler, taskStatus.TaskId.GetValue(), "Exited")
 		updateTask(taskStatus.TaskId.GetValue(), taskStatus.ExecutorId.GetValue(), "Finished")
 		tryFinishJob(taskStatus.TaskId.GetValue())
 	default:

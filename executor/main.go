@@ -232,42 +232,21 @@ func s3Upload(file ReaderAtSeeker, task *FileTask, contentType string, rkv *Redi
 	return
 }
 
+func progress(speed int, dlSize int64, rkv *RedisKeyValue) {
+	rkv.setSpeed(speed)
+	rkv.setPercentage(dlSize, false)
+	rkv.send()
+}
+
 func fileDownload(fileDl *FileDl, rkv *RedisKeyValue) (size int64, err error) {
-	var finish = make(chan bool)
-	fileDl.OnFinish(func() {
-		finish <- true
-	})
-
-	var dlErr error
-	fileDl.OnError(func(errCode int, err error) {
-		dlErr = err
-		fmt.Println("Error downloading: errCode:", errCode, "err:", err)
-	})
-
 	size = fileDl.Size
 	rkv.setSize(size)
 	rkv.setSpeed(0)
 	rkv.setPercentage(0, false)
 	rkv.send()
 
-	var exit bool
-	var dlSize, prev int64
-	fileDl.Start()
-	for !exit {
-		prev = dlSize
-		dlSize = fileDl.GetDownloadedSize()
-
-		rkv.setSpeed(int(dlSize - prev))
-		rkv.setPercentage(dlSize, false)
-		rkv.send()
-
-		select {
-		case exit = <-finish:
-			fmt.Println("downloaded size", dlSize)
-		default:
-			time.Sleep(time.Second * 1)
-		}
-	}
+	fileDl.SetCB(rkv, progress)
+	dlSize, dlErr := fileDl.Download()
 
 	rkv.setSpeed(0)
 	rkv.setPercentage(dlSize, false)
@@ -303,7 +282,7 @@ func transfer(task *FileTask) {
 	rkv.urlInfo.Speed = 0
 	rkv.urlInfo.Percentage = 0
 
-	fileDl, err := NewFileDl(task.originUrl, file)
+	fileDl, err := NewFileDl(task.originUrl, file, 0)
 	if err != nil {
 		fmt.Println("Cannot new file downloader!", "with error", err)
 		task.status = "Failed"
