@@ -15,7 +15,7 @@ import (
 	"time"
 	"strconv"
 	"github.com/garyburd/redigo/redis"
-	"git.letv.cn/optimus/optimus/common"
+	"legitlab.letv.cn/optimus/optimus/common"
 )
 
 func response(w http.ResponseWriter, statusCode int, message string) {

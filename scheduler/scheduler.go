@@ -9,7 +9,7 @@ import (
 	"math"
 	"strconv"
 
-	"git.letv.cn/optimus/optimus/common"
+	"legitlab.letv.cn/optimus/optimus/common"
 	"github.com/garyburd/redigo/redis"
 	"database/sql"
 )

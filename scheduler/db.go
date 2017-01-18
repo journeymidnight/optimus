@@ -7,7 +7,7 @@ import (
 	"github.com/mesos/mesos-go/mesosproto"
 	"strconv"
 
-	"git.letv.cn/optimus/optimus/common"
+	"legitlab.letv.cn/optimus/optimus/common"
 	"time"
 	"encoding/json"
 )

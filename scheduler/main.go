@@ -12,7 +12,7 @@ import (
 	"os"
 
 	"encoding/json"
-	"git.letv.cn/optimus/optimus/common"
+	"legitlab.letv.cn/optimus/optimus/common"
 	"time"
 	"os/signal"
 	"syscall"

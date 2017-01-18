@@ -8,8 +8,8 @@ import (
 	mesos "github.com/mesos/mesos-go/mesosproto"
 
 	"encoding/json"
-	"git.letv.cn/optimus/optimus/common"
-	"git.letv.cn/optimus/optimus/executor/s3"
+	"legitlab.letv.cn/optimus/optimus/common"
+	"legitlab.letv.cn/optimus/optimus/executor/s3"
 	"github.com/garyburd/redigo/redis"
 	"github.com/FZambia/go-sentinel"
 	"io"
